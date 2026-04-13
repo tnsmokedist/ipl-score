@@ -1,0 +1,130 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// User role enum
+enum Role {
+  ADMIN
+  VIEWER
+}
+
+model AdminUser {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  password_hash String
+  role          Role     @default(VIEWER)
+  created_at    DateTime @default(now())
+}
+
+model SystemSettings {
+  id    String @id @default(uuid())
+  key   String @unique
+  value String
+}
+
+model BettingPlayer {
+  id                 String            @id @default(uuid())
+  name               String
+  is_active          Boolean           @default(true)
+  default_bet_amount Float             @default(100.0)
+  total_winnings     Float             @default(0.0)
+  total_losses       Float             @default(0.0)
+  net_balance        Float             @default(0.0)
+  created_at         DateTime          @default(now())
+  matchups           Matchup[]
+  daily_settlements  DailySettlement[]
+}
+
+enum MatchStatus {
+  UPCOMING
+  LIVE
+  COMPLETED
+  ABANDONED
+}
+
+model IplMatch {
+  id           String      @id @default(uuid())
+  api_match_id String      @unique
+  date         DateTime
+  team_a_name  String
+  team_b_name  String
+  status       MatchStatus @default(UPCOMING)
+
+  matchups Matchup[]
+}
+
+model CricketPlayer {
+  id            String @id @default(uuid())
+  api_player_id String @unique
+  name          String
+  team_name     String
+
+  matchups_as_a Matchup[] @relation("PlayerA")
+  matchups_as_b Matchup[] @relation("PlayerB")
+  matchups_won  Matchup[] @relation("WinnerPlayer")
+}
+
+enum MatchupStatus {
+  PENDING
+  ACTIVE
+  SETTLED
+  VOID
+  DISPUTED
+}
+
+model Matchup {
+  id                String @id @default(uuid())
+  match_id          String
+  betting_player_id String
+
+  // Real life players
+  player_a_id String
+  player_b_id String
+
+  // Which player the BettingPlayer is backing (must be player_a_id or player_b_id)
+  assigned_player_id String
+
+  status MatchupStatus @default(PENDING)
+
+  bet_amount    Float @default(0.0)
+  payout_amount Float @default(0.0)
+
+  winner_player_id String?
+  admin_override   Boolean  @default(false)
+  updated_at       DateTime @updatedAt
+
+  match          IplMatch       @relation(fields: [match_id], references: [id])
+  betting_player BettingPlayer  @relation(fields: [betting_player_id], references: [id])
+  player_a       CricketPlayer  @relation("PlayerA", fields: [player_a_id], references: [id])
+  player_b       CricketPlayer  @relation("PlayerB", fields: [player_b_id], references: [id])
+  winner_player  CricketPlayer? @relation("WinnerPlayer", fields: [winner_player_id], references: [id])
+
+  score_snapshots ScoreSnapshot[]
+}
+
+model ScoreSnapshot {
+  id         String   @id @default(uuid())
+  matchup_id String
+  player_id  String
+  runs       Int      @default(0)
+  is_final   Boolean  @default(false)
+  updated_at DateTime @updatedAt
+
+  matchup Matchup @relation(fields: [matchup_id], references: [id])
+}
+
+model DailySettlement {
+  id                String   @id @default(uuid())
+  betting_player_id String
+  date              DateTime
+  total_bets        Int      @default(0)
+  total_won         Float    @default(0.0)
+  total_lost        Float    @default(0.0)
+  net_payout        Float    @default(0.0)
+
+  betting_player BettingPlayer @relation(fields: [betting_player_id], references: [id])
+}
