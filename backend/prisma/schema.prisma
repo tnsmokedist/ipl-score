@@ -1,22 +1,19 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  engineType      = "library"
 }
 
 datasource db {
   provider = "postgresql"
-}
-
-// User role enum
-enum Role {
-  ADMIN
-  VIEWER
+  url      = env("DATABASE_URL")
 }
 
 model AdminUser {
   id            String   @id @default(uuid())
   email         String   @unique
+  name          String   @default("")
   password_hash String
-  role          Role     @default(VIEWER)
+  role          String   @default("VIEWER")
   created_at    DateTime @default(now())
 }
 
@@ -27,104 +24,87 @@ model SystemSettings {
 }
 
 model BettingPlayer {
-  id                 String            @id @default(uuid())
-  name               String
-  is_active          Boolean           @default(true)
-  default_bet_amount Float             @default(100.0)
-  total_winnings     Float             @default(0.0)
-  total_losses       Float             @default(0.0)
-  net_balance        Float             @default(0.0)
-  created_at         DateTime          @default(now())
-  matchups           Matchup[]
-  daily_settlements  DailySettlement[]
-}
-
-enum MatchStatus {
-  UPCOMING
-  LIVE
-  COMPLETED
-  ABANDONED
+  id                 String              @id @default(uuid())
+  name               String              @unique
+  is_active          Boolean             @default(true)
+  default_bet_amount Float               @default(100.0)
+  total_winnings     Float               @default(0.0)
+  total_losses       Float               @default(0.0)
+  net_balance        Float               @default(0.0)
+  created_at         DateTime            @default(now())
+  weekly_draws       WeeklyDrawEntry[]
+  match_results      MatchResult[]
 }
 
 model IplMatch {
-  id           String      @id @default(uuid())
-  api_match_id String      @unique
+  id           String          @id @default(uuid())
+  api_match_id String          @unique
   date         DateTime
   team_a_name  String
   team_b_name  String
-  status       MatchStatus @default(UPCOMING)
-
-  matchups Matchup[]
+  venue        String          @default("")
+  status       String          @default("UPCOMING")
+  bet_amount   Float           @default(100.0)
+  created_at   DateTime        @default(now())
+  results      MatchResult[]
 }
 
-model CricketPlayer {
-  id            String @id @default(uuid())
-  api_player_id String @unique
-  name          String
-  team_name     String
-
-  matchups_as_a Matchup[] @relation("PlayerA")
-  matchups_as_b Matchup[] @relation("PlayerB")
-  matchups_won  Matchup[] @relation("WinnerPlayer")
+// The weekly draw: positions assigned on Tuesday, valid Wed 12AM through Tue 11:59PM
+model WeeklyDraw {
+  id                String            @id @default(uuid())
+  week_label        String            @unique  // e.g. "Apr 9 – Apr 15"
+  week_start        DateTime                   // Wednesday
+  week_end          DateTime                   // Tuesday
+  payout_confirmed  Boolean           @default(false)
+  payout_confirmed_at DateTime?
+  created_at        DateTime          @default(now())
+  entries           WeeklyDrawEntry[]
+  results           MatchResult[]
 }
 
-enum MatchupStatus {
-  PENDING
-  ACTIVE
-  SETTLED
-  VOID
-  DISPUTED
+// Each betting player's position assignment for the week
+model WeeklyDrawEntry {
+  id                String   @id @default(uuid())
+  weekly_draw_id    String
+  betting_player_id String
+  team_a_position   Int      // 1-4
+  team_b_position   Int      // 1-4
+  created_at        DateTime @default(now())
+
+  weekly_draw       WeeklyDraw    @relation(fields: [weekly_draw_id], references: [id])
+  betting_player    BettingPlayer @relation(fields: [betting_player_id], references: [id])
+
+  @@unique([weekly_draw_id, betting_player_id])
 }
 
-model Matchup {
-  id                String @id @default(uuid())
+// Per-match results for each betting player (auto-created from weekly draw)
+model MatchResult {
+  id                String   @id @default(uuid())
+  weekly_draw_id    String
   match_id          String
   betting_player_id String
 
-  // Real life players
-  player_a_id String
-  player_b_id String
+  team_a_position   Int
+  team_b_position   Int
 
-  // Which player the BettingPlayer is backing (must be player_a_id or player_b_id)
-  assigned_player_id String
+  player_a_name     String   @default("")
+  player_b_name     String   @default("")
+  player_a_runs     Int      @default(0)
+  player_b_runs     Int      @default(0)
+  total_runs        Int      @default(0)
 
-  status MatchupStatus @default(PENDING)
+  is_winner         Boolean  @default(false)
+  payout            Float    @default(0.0)
 
-  bet_amount    Float @default(0.0)
-  payout_amount Float @default(0.0)
+  payment_confirmed    Boolean  @default(false)
+  payment_confirmed_at DateTime?
 
-  winner_player_id String?
-  admin_override   Boolean  @default(false)
-  updated_at       DateTime @updatedAt
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
 
-  match          IplMatch       @relation(fields: [match_id], references: [id])
-  betting_player BettingPlayer  @relation(fields: [betting_player_id], references: [id])
-  player_a       CricketPlayer  @relation("PlayerA", fields: [player_a_id], references: [id])
-  player_b       CricketPlayer  @relation("PlayerB", fields: [player_b_id], references: [id])
-  winner_player  CricketPlayer? @relation("WinnerPlayer", fields: [winner_player_id], references: [id])
+  weekly_draw       WeeklyDraw    @relation(fields: [weekly_draw_id], references: [id])
+  match             IplMatch      @relation(fields: [match_id], references: [id])
+  betting_player    BettingPlayer @relation(fields: [betting_player_id], references: [id])
 
-  score_snapshots ScoreSnapshot[]
-}
-
-model ScoreSnapshot {
-  id         String   @id @default(uuid())
-  matchup_id String
-  player_id  String
-  runs       Int      @default(0)
-  is_final   Boolean  @default(false)
-  updated_at DateTime @updatedAt
-
-  matchup Matchup @relation(fields: [matchup_id], references: [id])
-}
-
-model DailySettlement {
-  id                String   @id @default(uuid())
-  betting_player_id String
-  date              DateTime
-  total_bets        Int      @default(0)
-  total_won         Float    @default(0.0)
-  total_lost        Float    @default(0.0)
-  net_payout        Float    @default(0.0)
-
-  betting_player BettingPlayer @relation(fields: [betting_player_id], references: [id])
+  @@unique([match_id, betting_player_id])
 }

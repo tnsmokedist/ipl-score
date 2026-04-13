@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ipl-betting-api
+    runtime: node
+    region: ohio
+    plan: free
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: NODE_ENV
+        value: production
