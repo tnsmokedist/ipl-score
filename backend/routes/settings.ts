@@ -1,9 +1,8 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { scrapeIPLSchedule } from '../services/cricketApi';
+import prisma from '../lib/prisma';
 
 const router = Router();
-const prisma = new PrismaClient();
 
 // ─── Sync IPL matches from Cricbuzz ───
 router.post('/sync-matches', async (req, res) => {

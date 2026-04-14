@@ -1,16 +1,48 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
-import { Mail, Lock, Loader2, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Mail, Lock, Loader2, ArrowRight, ShieldCheck, Wifi, WifiOff, CheckCircle2 } from 'lucide-react';
+
+type ServerStatus = 'waking' | 'online' | 'offline';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [serverStatus, setServerStatus] = useState<ServerStatus>('waking');
   const { login } = useAuth();
+  const wakeAttempted = useRef(false);
+
+  // Pre-warm the backend as soon as the login page loads
+  useEffect(() => {
+    if (wakeAttempted.current) return;
+    wakeAttempted.current = true;
+
+    const wakeUpServer = async () => {
+      setServerStatus('waking');
+      try {
+        const start = Date.now();
+        await api.get('/api/health', { requireAuth: false });
+        const elapsed = Date.now() - start;
+        console.log(`[Login] Server responded in ${elapsed}ms`);
+        setServerStatus('online');
+      } catch {
+        // Retry once after 2s
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          await api.get('/api/health', { requireAuth: false });
+          setServerStatus('online');
+        } catch {
+          setServerStatus('offline');
+        }
+      }
+    };
+
+    wakeUpServer();
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +73,30 @@ export default function LoginPage() {
     }
   };
 
+  const statusConfig = {
+    waking: {
+      icon: <Wifi className="h-3.5 w-3.5 animate-pulse" />,
+      text: 'Waking up server…',
+      color: 'text-amber-400',
+      bgColor: 'bg-amber-500/8 border-amber-500/15',
+    },
+    online: {
+      icon: <CheckCircle2 className="h-3.5 w-3.5" />,
+      text: 'Server ready',
+      color: 'text-emerald-400',
+      bgColor: 'bg-emerald-500/8 border-emerald-500/15',
+    },
+    offline: {
+      icon: <WifiOff className="h-3.5 w-3.5" />,
+      text: 'Server unreachable — try again',
+      color: 'text-red-400',
+      bgColor: 'bg-red-500/8 border-red-500/15',
+    },
+  };
+
+  const status = statusConfig[serverStatus];
+  const isServerReady = serverStatus === 'online';
+
   return (
     <div className="flex min-h-dvh w-full items-center justify-center p-4">
       {/* Stadium Floodlight Background */}
@@ -64,6 +120,15 @@ export default function LoginPage() {
             <p className="mt-2 text-sm text-zinc-500">
               Sign in to manage the IPL betting system
             </p>
+          </div>
+
+          {/* Server Status Banner */}
+          <div className={`mb-6 flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-xs font-medium transition-all duration-500 ${status.bgColor} ${status.color}`}>
+            {status.icon}
+            <span>{status.text}</span>
+            {serverStatus === 'waking' && (
+              <span className="text-[10px] opacity-60 ml-1">(free tier cold start)</span>
+            )}
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
@@ -103,7 +168,7 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !isServerReady}
               className="group relative flex w-full justify-center overflow-hidden rounded-xl btn-primary px-4 py-3.5 text-sm font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed"
             >
               <div className="relative flex items-center">
@@ -111,6 +176,11 @@ export default function LoginPage() {
                   <>
                     <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                     Authenticating...
+                  </>
+                ) : !isServerReady ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Connecting to server...
                   </>
                 ) : (
                   <>

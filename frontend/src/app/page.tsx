@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
+import { api } from '@/lib/api';
 import { Loader2, LogIn, Trophy, Sparkles, ChevronDown } from 'lucide-react';
 import Image from 'next/image';
 
@@ -13,6 +14,8 @@ export default function Home() {
 
   useEffect(() => {
     setMounted(true);
+    // Pre-warm the backend so login is instant
+    api.get('/api/health', { requireAuth: false }).catch(() => {});
   }, []);
 
   useEffect(() => {

@@ -2,13 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
-import { PrismaClient } from '@prisma/client';
 import { findCricbuzzMatchId, scrapeCricbuzzScorecard, scrapeIPLSchedule } from './services/cricketApi';
+import prisma from './lib/prisma';
 
 dotenv.config();
 
 const app = express();
-const prisma = new PrismaClient();
 const port = process.env.PORT || 5000;
 
 // CORS: allow localhost (dev) + Vercel (production)
