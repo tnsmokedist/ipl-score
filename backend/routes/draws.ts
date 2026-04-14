@@ -467,12 +467,15 @@ router.get('/settlement', async (req, res) => {
 
     // Group results by week and player
     const weeklyData = weeks.map(week => {
-      const completedResults = week.results.filter(r => r.total_runs > 0);
+      // Only include results from COMPLETED matches (not filtering by total_runs > 0
+      // because a player's batsmen can genuinely score 0 but they still paid into the pot)
+      const settledResults = week.results.filter(r => r.match?.status === 'COMPLETED');
       const playerSummaries = players.map(p => {
-        const playerResults = completedResults.filter(r => r.betting_player_id === p.id);
+        const playerResults = settledResults.filter(r => r.betting_player_id === p.id);
         const wins = playerResults.filter(r => r.is_winner);
         const totalWon = wins.reduce((sum, r) => sum + r.payout, 0);
-        const totalPaid = playerResults.length * (playerResults[0]?.match?.bet_amount || 100);
+        // Each match the player was in, they paid the bet_amount
+        const totalPaid = playerResults.reduce((sum, r) => sum + (r.match?.bet_amount || 100), 0);
         const weeklyNet = totalWon - totalPaid;
         return {
           player_id: p.id,
@@ -493,7 +496,7 @@ router.get('/settlement', async (req, res) => {
         week_end: week.week_end,
         payout_confirmed: week.payout_confirmed,
         payout_confirmed_at: week.payout_confirmed_at,
-        total_matches: new Set(completedResults.map(r => r.match_id)).size,
+        total_matches: new Set(settledResults.map(r => r.match_id)).size,
         player_summaries: playerSummaries
       };
     });
