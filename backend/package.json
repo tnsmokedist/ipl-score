@@ -2,11 +2,11 @@
   "name": "ipl-betting-backend",
   "version": "1.0.0",
   "description": "IPL Betting Platform - Backend API",
-  "main": "index.js",
+  "main": "index.ts",
   "scripts": {
     "dev": "tsx watch index.ts",
-    "build": "npx prisma generate && npx tsc",
-    "start": "node dist/index.js",
+    "build": "npx prisma generate",
+    "start": "npx tsx index.ts",
     "postinstall": "npx prisma generate"
   },
   "keywords": [],
@@ -25,9 +25,6 @@
     "express": "^5.2.1",
     "node-cron": "^4.2.1",
     "prisma": "^5.22.0",
-    "typescript": "^6.0.2"
-  },
-  "devDependencies": {
     "tsx": "^4.21.0"
   }
 }
