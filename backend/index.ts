@@ -31,6 +31,38 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// ─── Online User Tracking (in-memory) ───
+// Maps user ID → { email, name, role, lastSeen }
+const onlineUsers = new Map<string, { email: string; name: string; role: string; lastSeen: Date }>();
+const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
+// Middleware: track authenticated users' last activity
+app.use((req, _res, next) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer mock-jwt-')) {
+    // Token format: mock-jwt-{role}-{userId}
+    const parts = authHeader.replace('Bearer mock-jwt-', '').split('-');
+    if (parts.length >= 2) {
+      const userId = parts.slice(1).join('-'); // UUID may contain dashes
+      // We'll enrich later when we have DB data; for now just bump timestamp
+      const existing = onlineUsers.get(userId);
+      if (existing) {
+        existing.lastSeen = new Date();
+      } else {
+        // Fetch user info from DB asynchronously
+        prisma.adminUser.findUnique({ where: { id: userId }, select: { email: true, name: true, role: true } })
+          .then(user => {
+            if (user) {
+              onlineUsers.set(userId, { email: user.email, name: user.name || '', role: user.role, lastSeen: new Date() });
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }
+  next();
+});
+
 // Routes
 import authRouter from './routes/auth';
 import playersRouter from './routes/players';
@@ -45,6 +77,20 @@ app.get('/api/health', (req, res) => {
 // Root fallback
 app.get('/', (req, res) => {
   res.json({ message: 'Cricket IPL Betting API — Draw Engine Active', healthCheck: '/api/health' });
+});
+
+// ─── Online Users Endpoint ───
+app.get('/api/auth/online', (req, res) => {
+  const now = Date.now();
+  const result: Array<{ id: string; email: string; name: string; role: string; lastSeen: string }> = [];
+  onlineUsers.forEach((info, id) => {
+    if (now - info.lastSeen.getTime() < ONLINE_THRESHOLD_MS) {
+      result.push({ id, email: info.email, name: info.name, role: info.role, lastSeen: info.lastSeen.toISOString() });
+    } else {
+      onlineUsers.delete(id); // Clean up stale entries
+    }
+  });
+  res.json(result);
 });
 
 app.use('/api/auth', authRouter);

@@ -3,6 +3,7 @@
 import { useAuth } from '@/hooks/useAuth';
 import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
 import {
   LayoutDashboard,
   Users,
@@ -29,7 +30,7 @@ export default function DashboardLayout({
 
   useEffect(() => {
     if (!isLoading && !user) {
-      router.push('/login');
+      router.push('/');
     }
   }, [user, isLoading, router]);
 
@@ -47,6 +48,17 @@ export default function DashboardLayout({
     }
     return () => { document.body.style.overflow = ''; };
   }, [mobileMenuOpen]);
+
+  // Global heartbeat: ping server every 60s to maintain online status
+  useEffect(() => {
+    if (!user) return;
+    // Ping immediately on mount
+    api.get('/api/health').catch(() => {});
+    const heartbeat = setInterval(() => {
+      api.get('/api/health').catch(() => {});
+    }, 60000);
+    return () => clearInterval(heartbeat);
+  }, [user]);
 
   if (isLoading || !user) {
     return (
