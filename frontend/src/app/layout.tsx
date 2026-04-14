@@ -22,8 +22,8 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "IPL Betting Platform",
-  description: "Administrative Dashboard for IPL Betting Platform",
+  title: "All Star Group — IPL Scoreboard",
+  description: "Welcome to All Star Group IPL Scoreboard. Track live scores, manage matchups, and settle bets.",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
