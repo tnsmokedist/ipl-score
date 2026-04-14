@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
-import { Dices, Plus, Loader2, Trophy, Hash, ChevronRight, Calendar, Zap } from 'lucide-react';
+import { Dices, Plus, Loader2, Trophy, Hash, ChevronRight, Calendar, Zap, Pencil } from 'lucide-react';
 
 export default function DrawsPage() {
   const { isAdmin } = useAuth();
@@ -16,8 +16,10 @@ export default function DrawsPage() {
   const [selectedMatch, setSelectedMatch] = useState<string>('');
   const [matchResults, setMatchResults] = useState<any[]>([]);
 
-  // Create draw modal
+  // Create/Edit draw modal
   const [isCreateOpen, setCreateOpen] = useState(false);
+  const [isEditMode, setEditMode] = useState(false);
+  const [editWeekId, setEditWeekId] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState('');
   const [newStart, setNewStart] = useState('');
   const [newEnd, setNewEnd] = useState('');
@@ -76,6 +78,34 @@ export default function DrawsPage() {
     setNewEnd(tue.toISOString().split('T')[0]);
     setNewLabel(`${wed.toLocaleDateString('en-US', {month:'short',day:'numeric'})} – ${tue.toLocaleDateString('en-US', {month:'short',day:'numeric'})}`);
     setAssignments(players.map(p => ({ betting_player_id: p.id, name: p.name, team_a_position: 1, team_b_position: 1 })));
+    setEditMode(false);
+    setEditWeekId(null);
+    setCreateOpen(true);
+  };
+
+  // Edit existing weekly draw
+  const openEdit = (week: any) => {
+    setNewLabel(week.week_label);
+    setNewStart(new Date(week.week_start).toISOString().split('T')[0]);
+    setNewEnd(new Date(week.week_end).toISOString().split('T')[0]);
+    // Populate assignments from existing entries
+    const existingAssignments = (week.entries || []).map((e: any) => ({
+      betting_player_id: e.betting_player_id,
+      name: e.betting_player?.name || '',
+      team_a_position: e.team_a_position,
+      team_b_position: e.team_b_position,
+    }));
+    // Add any players not yet in the draw
+    const existingIds = existingAssignments.map((a: any) => a.betting_player_id);
+    const missingPlayers = players.filter(p => !existingIds.includes(p.id)).map(p => ({
+      betting_player_id: p.id,
+      name: p.name,
+      team_a_position: 1,
+      team_b_position: 1,
+    }));
+    setAssignments([...existingAssignments, ...missingPlayers]);
+    setEditMode(true);
+    setEditWeekId(week.id);
     setCreateOpen(true);
   };
 
@@ -88,14 +118,28 @@ export default function DrawsPage() {
       const endParts = newEnd.split('-').map(Number);
       const startDate = new Date(startParts[0], startParts[1] - 1, startParts[2], 0, 0, 0);
       const endDate = new Date(endParts[0], endParts[1] - 1, endParts[2], 23, 59, 59);
-      await api.post('/api/draws/weeks', {
+
+      const payload = {
         week_label: newLabel,
         week_start: startDate.toISOString(),
         week_end: endDate.toISOString(),
         assignments: assignments.map(a => ({ betting_player_id: a.betting_player_id, team_a_position: a.team_a_position, team_b_position: a.team_b_position }))
-      });
+      };
+
+      if (isEditMode && editWeekId) {
+        await api.put(`/api/draws/weeks/${editWeekId}`, payload);
+      } else {
+        await api.post('/api/draws/weeks', payload);
+      }
+
       setCreateOpen(false);
+      setEditMode(false);
+      setEditWeekId(null);
       await fetchData();
+      // Refresh selected week if we were editing it
+      if (isEditMode && editWeekId) {
+        await loadWeekDetail(editWeekId);
+      }
     } catch (e) { console.error(e); }
     finally { setSaving(false); }
   };
@@ -153,17 +197,29 @@ export default function DrawsPage() {
       {/* Week Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {weeks.map(w => (
-          <div key={w.id} onClick={() => loadWeekDetail(w.id)} className={`cursor-pointer rounded-2xl p-5 transition-premium ${selectedWeek?.id === w.id ? 'card-elevated border border-primary/30 glow-blue' : 'card-glass hover:border-white/12'}`}>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm font-bold text-white">{w.week_label}</span>
-              <Calendar className="h-4 w-4 text-zinc-600" />
-            </div>
-            <p className="text-xs text-zinc-500">{w.entries?.length || 0} players · {w._count?.results || 0} match entries</p>
-            <div className="pitch-line mt-3 mb-3 rounded-full" />
-            <div className="flex flex-wrap gap-1.5">
-              {w.entries?.map((e: any) => (
-                <span key={e.id} className="text-[11px] bg-white/4 border border-white/8 px-2 py-0.5 rounded-md font-mono text-zinc-400 score-display">{e.betting_player?.name?.slice(0,3)}: A{e.team_a_position}B{e.team_b_position}</span>
-              ))}
+          <div key={w.id} className={`relative group cursor-pointer rounded-2xl p-5 transition-premium ${selectedWeek?.id === w.id ? 'card-elevated border border-primary/30 glow-blue' : 'card-glass hover:border-white/12'}`}>
+            {/* Edit button */}
+            {isAdmin && (
+              <button
+                onClick={(e) => { e.stopPropagation(); openEdit(w); }}
+                className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 rounded-lg p-1.5 text-zinc-500 hover:bg-white/10 hover:text-primary transition-all z-10"
+                title="Edit draw"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <div onClick={() => loadWeekDetail(w.id)}>
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-bold text-white">{w.week_label}</span>
+                <Calendar className="h-4 w-4 text-zinc-600" />
+              </div>
+              <p className="text-xs text-zinc-500">{w.entries?.length || 0} players · {w._count?.results || 0} match entries</p>
+              <div className="pitch-line mt-3 mb-3 rounded-full" />
+              <div className="flex flex-wrap gap-1.5">
+                {w.entries?.map((e: any) => (
+                  <span key={e.id} className="text-[11px] bg-white/4 border border-white/8 px-2 py-0.5 rounded-md font-mono text-zinc-400 score-display">{e.betting_player?.name?.slice(0,3)}: A{e.team_a_position}B{e.team_b_position}</span>
+                ))}
+              </div>
             </div>
           </div>
         ))}
@@ -178,7 +234,18 @@ export default function DrawsPage() {
       {/* Selected Week — Matches for this week */}
       {selectedWeek && (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-white">Matches — {selectedWeek.week_label}</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-white">Matches — {selectedWeek.week_label}</h2>
+            {isAdmin && (
+              <button
+                onClick={() => openEdit(selectedWeek)}
+                className="flex items-center gap-1.5 rounded-lg bg-white/5 border border-white/8 px-3 py-1.5 text-xs font-medium text-zinc-400 hover:bg-white/10 hover:text-primary transition-all"
+              >
+                <Pencil className="h-3 w-3" />
+                Edit Draw
+              </button>
+            )}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {(selectedWeek.matches || []).map((m: any) => {
               const isCompleted = m.status === 'COMPLETED';
@@ -262,12 +329,24 @@ export default function DrawsPage() {
         </div></div>
       )}
 
-      {/* Create Weekly Draw Modal */}
+      {/* Create / Edit Weekly Draw Modal */}
       {isCreateOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4">
           <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl card-glass p-6 shadow-2xl">
-            <h2 className="text-xl font-bold text-white mb-1">New Weekly Draw</h2>
-            <p className="text-sm text-zinc-400 mb-4">Assign batting positions for the entire week. Same positions apply to all matches.</p>
+            <h2 className="text-xl font-bold text-white mb-1">
+              {isEditMode ? 'Edit Weekly Draw' : 'New Weekly Draw'}
+            </h2>
+            <p className="text-sm text-zinc-400 mb-4">
+              {isEditMode 
+                ? 'Update positions for this week. Only pending (unsettled) matches will be affected.'
+                : 'Assign batting positions for the entire week. Same positions apply to all matches.'}
+            </p>
+            {isEditMode && (
+              <div className="flex items-center gap-2 mb-4 rounded-xl bg-amber-500/8 border border-amber-500/15 px-3 py-2">
+                <Pencil className="h-4 w-4 text-amber-400 flex-shrink-0" />
+                <p className="text-xs text-amber-300">Editing mode — settled matches will not be changed.</p>
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
               <div>
                 <label className="block text-xs text-zinc-500 mb-1">Label</label>
@@ -301,9 +380,9 @@ export default function DrawsPage() {
               ))}
             </div>
             <div className="flex gap-3 pt-6">
-              <button onClick={() => setCreateOpen(false)} className="flex-1 rounded-xl px-4 py-2.5 text-sm font-medium text-zinc-400 border border-white/8 hover:bg-white/5 transition-premium">Cancel</button>
+              <button onClick={() => { setCreateOpen(false); setEditMode(false); setEditWeekId(null); }} className="flex-1 rounded-xl px-4 py-2.5 text-sm font-medium text-zinc-400 border border-white/8 hover:bg-white/5 transition-premium">Cancel</button>
               <button onClick={saveDraw} disabled={saving} className="flex flex-1 items-center justify-center rounded-xl btn-primary px-4 py-2.5 text-sm font-semibold text-white">
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Draw for Week'}
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : isEditMode ? 'Update Draw' : 'Save Draw for Week'}
               </button>
             </div>
           </div>
