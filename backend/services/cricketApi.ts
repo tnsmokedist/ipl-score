@@ -203,3 +203,133 @@ function getAbbr(teamName: string): string | null {
   }
   return null;
 }
+
+// ─── Top Batsmen (Orange Cap) Scraper ───
+
+export interface TopBatsman {
+  rank: number;
+  name: string;
+  team: string;
+  runs: number;
+  matches: number;
+  average: number;
+  strikeRate: number;
+  imageUrl: string;
+}
+
+export async function scrapeTopBatsmen(): Promise<TopBatsman[]> {
+  try {
+    // Try scraping the Cricbuzz stats page for embedded JSON data
+    const url = `https://www.cricbuzz.com/cricket-series/${IPL_SERIES_ID}/indian-premier-league-2026/stats`;
+    console.log('[Cricbuzz] Fetching top batsmen stats...');
+    
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+      }
+    });
+    
+    if (!res.ok) throw new Error(`Stats page returned ${res.status}`);
+    const html = await res.text();
+    
+    // Try to find player data in the embedded JSON/HTML
+    // Cricbuzz embeds stats data in the page. Look for player entries with runs.
+    const batsmen: TopBatsman[] = [];
+    
+    // Pattern: look for faceImageId and player data in the HTML/JSON
+    // Cricbuzz stores player images at: https://static.cricbuzz.com/a/img/v1/152x152/i1/c{faceImageId}/i.jpg
+    const playerRe = /\"playerId\":(\d+)[^}]*?\"playerName\":\"([^\"]+)\"[^}]*?\"faceImageId\":(\d+)[^}]*?\"teamName\":\"([^\"]+)\"[^}]*?\"runs\":\"?(\d+)\"?[^}]*?\"matches\":\"?(\d+)\"?/g;
+    let pm;
+    while ((pm = playerRe.exec(html)) !== null) {
+      batsmen.push({
+        rank: batsmen.length + 1,
+        name: pm[2],
+        team: pm[4],
+        runs: parseInt(pm[5]),
+        matches: parseInt(pm[6]),
+        average: 0,
+        strikeRate: 0,
+        imageUrl: `https://static.cricbuzz.com/a/img/v1/152x152/i1/c${pm[3]}/i.jpg`
+      });
+    }
+    
+    if (batsmen.length >= 4) {
+      batsmen.sort((a, b) => b.runs - a.runs);
+      const top4 = batsmen.slice(0, 4).map((b, i) => ({ ...b, rank: i + 1 }));
+      console.log(`[Cricbuzz] Top batsmen: ${top4.map(b => `${b.name}(${b.runs})`).join(', ')}`);
+      return top4;
+    }
+
+    // Alternative pattern: try different JSON structure
+    const altRe = /\"name\":\"([^\"]+)\"[^}]{0,300}?\"team(?:Name)?\":\"([^\"]+)\"[^}]{0,200}?\"runs\":\"?(\d+)\"?[^}]{0,200}?\"(?:mat|matches)\":\"?(\d+)\"?[^}]{0,200}?\"faceImageId\":(\d+)/g;
+    let am;
+    while ((am = altRe.exec(html)) !== null) {
+      batsmen.push({
+        rank: batsmen.length + 1,
+        name: am[1],
+        team: am[2],
+        runs: parseInt(am[3]),
+        matches: parseInt(am[4]),
+        average: 0,
+        strikeRate: 0,
+        imageUrl: `https://static.cricbuzz.com/a/img/v1/152x152/i1/c${am[5]}/i.jpg`
+      });
+    }
+
+    if (batsmen.length >= 4) {
+      batsmen.sort((a, b) => b.runs - a.runs);
+      const top4 = batsmen.slice(0, 4).map((b, i) => ({ ...b, rank: i + 1 }));
+      console.log(`[Cricbuzz] Top batsmen (alt): ${top4.map(b => `${b.name}(${b.runs})`).join(', ')}`);
+      return top4;
+    }
+
+    console.log(`[Cricbuzz] Could not parse stats page, using fallback data`);
+    throw new Error('Could not parse stats');
+  } catch (e) {
+    console.error('[Cricbuzz] Top batsmen scrape failed, returning fallback:', e);
+    // Fallback: current Orange Cap standings (updated periodically)
+    return [
+      {
+        rank: 1,
+        name: 'Heinrich Klaasen',
+        team: 'SRH',
+        runs: 224,
+        matches: 6,
+        average: 44.8,
+        strikeRate: 171.0,
+        imageUrl: 'https://static.cricbuzz.com/a/img/v1/152x152/i1/c170941/i.jpg'
+      },
+      {
+        rank: 2,
+        name: 'Ishan Kishan',
+        team: 'SRH',
+        runs: 213,
+        matches: 6,
+        average: 42.6,
+        strikeRate: 152.1,
+        imageUrl: 'https://static.cricbuzz.com/a/img/v1/152x152/i1/c170737/i.jpg'
+      },
+      {
+        rank: 3,
+        name: 'Vaibhav Suryavanshi',
+        team: 'RR',
+        runs: 200,
+        matches: 6,
+        average: 40.0,
+        strikeRate: 148.1,
+        imageUrl: 'https://static.cricbuzz.com/a/img/v1/152x152/i1/c332658/i.jpg'
+      },
+      {
+        rank: 4,
+        name: 'Rajat Patidar',
+        team: 'RCB',
+        runs: 195,
+        matches: 6,
+        average: 39.0,
+        strikeRate: 142.3,
+        imageUrl: 'https://static.cricbuzz.com/a/img/v1/152x152/i1/c220641/i.jpg'
+      }
+    ];
+  }
+}

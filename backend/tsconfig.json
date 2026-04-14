@@ -13,6 +13,6 @@
     "declaration": false,
     "sourceMap": false
   },
-  "include": ["*.ts", "routes/*.ts", "services/*.ts"],
+  "include": ["*.ts", "lib/*.ts", "routes/*.ts", "services/*.ts"],
   "exclude": ["node_modules", "dist", "prisma", "routes/matchups.ts", "prisma.config.ts"]
 }

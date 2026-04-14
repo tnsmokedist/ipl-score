@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { scrapeIPLSchedule } from '../services/cricketApi';
+import { scrapeIPLSchedule, scrapeTopBatsmen } from '../services/cricketApi';
 import prisma from '../lib/prisma';
 
 const router = Router();
@@ -128,6 +128,17 @@ router.post('/seed', async (req, res) => {
   } catch (error) {
     console.error('Seeding error:', error);
     res.status(500).json({ error: 'Failed to seed database' });
+  }
+});
+
+// ─── Top Batsmen (Orange Cap) ───
+router.get('/top-batsmen', async (req, res) => {
+  try {
+    const topBatsmen = await scrapeTopBatsmen();
+    res.json(topBatsmen);
+  } catch (error) {
+    console.error('Top batsmen error:', error);
+    res.status(500).json({ error: 'Failed to fetch top batsmen' });
   }
 });
 
