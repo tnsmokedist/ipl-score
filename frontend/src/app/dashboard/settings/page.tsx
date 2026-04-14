@@ -102,7 +102,7 @@ export default function SettingsPage() {
         <h2 className="flex items-center text-lg font-medium text-white mb-4"><UserPlus className="mr-2 h-5 w-5 text-primary" /> Create Account</h2>
         <p className="text-sm text-zinc-400 mb-4">Add a Co-Admin (full access) or Viewer (read-only for players).</p>
         <form onSubmit={handleCreateAcct} className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <input required type="text" placeholder="Name" value={acctName} onChange={e => setAcctName(e.target.value)}
               className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary" />
             <input required type="email" placeholder="Email" value={acctEmail} onChange={e => setAcctEmail(e.target.value)}
@@ -129,7 +129,7 @@ export default function SettingsPage() {
         <h2 className="flex items-center text-lg font-medium text-white mb-4"><Key className="mr-2 h-5 w-5 text-primary" /> Accounts</h2>
         <div className="space-y-2">
           {accounts.map(a => (
-            <div key={a.id} className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3 border border-white/5">
+            <div key={a.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl bg-white/5 px-4 py-3 border border-white/5">
               <div className="flex items-center gap-3">
                 <div className={`flex h-8 w-8 items-center justify-center rounded-full ${a.role === 'ADMIN' ? 'bg-primary/20' : a.role === 'CO_ADMIN' ? 'bg-amber-500/20' : 'bg-zinc-700'}`}>
                   {a.role === 'ADMIN' ? <Shield className="h-4 w-4 text-primary" /> : a.role === 'CO_ADMIN' ? <Shield className="h-4 w-4 text-amber-400" /> : <Eye className="h-4 w-4 text-zinc-400" />}

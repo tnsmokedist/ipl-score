@@ -42,7 +42,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex h-screen w-full items-center justify-center p-4">
+    <div className="flex min-h-dvh w-full items-center justify-center p-4">
       {/* Stadium Floodlight Background */}
       <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-[30%] -left-[15%] w-[60%] h-[60%] rounded-full bg-gradient-to-br from-blue-600/15 to-indigo-800/10 blur-[140px]" />

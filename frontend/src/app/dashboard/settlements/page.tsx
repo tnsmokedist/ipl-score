@@ -201,7 +201,7 @@ export default function SettlementsPage() {
       </div>
 
       {/* Overall Leaderboard */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {(data.players || []).map((p: any, i: number) => (
           <div key={p.id} className={`rounded-2xl border p-5 backdrop-blur-xl ${i === 0 && p.net_balance > 0 ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-white/5 bg-black/40'}`}>
             <div className="flex justify-between items-start mb-3">
@@ -310,7 +310,7 @@ export default function SettlementsPage() {
                 </div>
 
                 {/* Detailed Results Table */}
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
                   <table className="min-w-full divide-y divide-white/5">
                     <thead>
                       <tr className="bg-white/5">

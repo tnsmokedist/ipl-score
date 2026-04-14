@@ -134,7 +134,8 @@ export default function PlayersPage() {
            <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
       ) : (
-        <div className="rounded-2xl border border-white/5 bg-black/40 backdrop-blur-xl overflow-hidden overflow-x-auto">
+        <div className="rounded-2xl border border-white/5 bg-black/40 backdrop-blur-xl overflow-hidden">
+          <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
           <table className="min-w-full divide-y divide-white/5">
             <thead>
               <tr className="bg-white/5">
@@ -196,6 +197,7 @@ export default function PlayersPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

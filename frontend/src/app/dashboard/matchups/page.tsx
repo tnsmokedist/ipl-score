@@ -136,15 +136,15 @@ export default function MatchupsPage() {
                </div>
              ) : (
                <form onSubmit={handleCreate} className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="col-span-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="col-span-full">
                        <label className="block text-sm font-medium text-zinc-400 mb-1">IPL Match</label>
                        <select required className="w-full rounded-xl border border-white/10 bg-white/5 p-2.5 text-white" value={newMatchup.match_id} onChange={e => setNewMatchup({...newMatchup, match_id: e.target.value})}>
                           <option value="">Select a Match</option>
                           {supportData.matches.map((m: any) => <option key={m.id} value={m.id}>{m.team_a_name} vs {m.team_b_name}</option>)}
                        </select>
                     </div>
-                    <div className="col-span-2">
+                    <div className="col-span-full">
                        <label className="block text-sm font-medium text-zinc-400 mb-1">Betting Player</label>
                        <select required className="w-full rounded-xl border border-white/10 bg-white/5 p-2.5 text-white" value={newMatchup.betting_player_id} onChange={e => setNewMatchup({...newMatchup, betting_player_id: e.target.value})}>
                           <option value="">Select Bettor</option>
@@ -165,7 +165,7 @@ export default function MatchupsPage() {
                           {supportData.cricketPlayers.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
                        </select>
                     </div>
-                    <div className="col-span-2">
+                    <div className="col-span-full">
                        <label className="block text-sm font-medium text-zinc-400 mb-1">Bet Amount ($)</label>
                        <input type="number" required min="1" className="w-full rounded-xl border border-white/10 bg-white/5 p-2.5 text-white" value={newMatchup.bet_amount} onChange={e => setNewMatchup({...newMatchup, bet_amount: e.target.value})} />
                     </div>

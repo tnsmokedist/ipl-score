@@ -225,7 +225,7 @@ export default function DrawsPage() {
 
       {/* Match Results Table */}
       {selectedMatch && matchResults.length > 0 && (
-        <div className="rounded-2xl card-glass overflow-hidden overflow-x-auto">
+        <div className="rounded-2xl card-glass overflow-hidden"><div className="overflow-x-auto -webkit-overflow-scrolling-touch">
           <div className="px-6 py-4 border-b border-white/5">
             <h2 className="text-lg font-bold text-white">
               {matchResults[0]?.match?.team_a_name} <span className="text-zinc-600 font-normal">vs</span> {matchResults[0]?.match?.team_b_name}
@@ -259,7 +259,7 @@ export default function DrawsPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </div></div>
       )}
 
       {/* Create Weekly Draw Modal */}
@@ -268,7 +268,7 @@ export default function DrawsPage() {
           <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl card-glass p-6 shadow-2xl">
             <h2 className="text-xl font-bold text-white mb-1">New Weekly Draw</h2>
             <p className="text-sm text-zinc-400 mb-4">Assign batting positions for the entire week. Same positions apply to all matches.</p>
-            <div className="grid grid-cols-3 gap-3 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
               <div>
                 <label className="block text-xs text-zinc-500 mb-1">Label</label>
                 <input type="text" value={newLabel} onChange={e => setNewLabel(e.target.value)} className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white" />
@@ -284,15 +284,15 @@ export default function DrawsPage() {
             </div>
             <div className="space-y-3">
               {assignments.map((a, i) => (
-                <div key={a.betting_player_id} className="flex items-center gap-4 rounded-xl bg-white/5 p-3 border border-white/5">
+                <div key={a.betting_player_id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 rounded-xl bg-white/5 p-3 border border-white/5">
                   <span className="text-sm font-medium text-white w-20 shrink-0">{a.name}</span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs text-zinc-500">A</span>
-                    <select value={a.team_a_position} onChange={e => { const u = [...assignments]; u[i].team_a_position = Number(e.target.value); setAssignments(u); }} className="rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-white">
+                    <select value={a.team_a_position} onChange={e => { const u = [...assignments]; u[i].team_a_position = Number(e.target.value); setAssignments(u); }} className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-sm text-white min-w-[52px]">
                       {[1,2,3,4].map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                     <span className="text-xs text-zinc-500">B</span>
-                    <select value={a.team_b_position} onChange={e => { const u = [...assignments]; u[i].team_b_position = Number(e.target.value); setAssignments(u); }} className="rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-white">
+                    <select value={a.team_b_position} onChange={e => { const u = [...assignments]; u[i].team_b_position = Number(e.target.value); setAssignments(u); }} className="rounded-lg border border-white/10 bg-white/5 px-2 py-2 text-sm text-white min-w-[52px]">
                       {[1,2,3,4].map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                     <span className="text-xs text-zinc-400 font-mono ml-2">A{a.team_a_position}B{a.team_b_position}</span>
