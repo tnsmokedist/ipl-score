@@ -1,4 +1,12 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? 'https://ipl-score-l2c8.onrender.com' : 'http://localhost:5000');
+'use client';
+
+const RENDER_URL = 'https://ipl-score-l2c8.onrender.com';
+
+function getBaseUrl(): string {
+  if (typeof window === 'undefined') return RENDER_URL; // SSR → use Render
+  if (window.location.hostname === 'localhost') return 'http://localhost:5000';
+  return RENDER_URL;
+}
 
 type FetchOptions = RequestInit & {
   requireAuth?: boolean;
@@ -6,11 +14,11 @@ type FetchOptions = RequestInit & {
 
 export const api = {
   get: async (endpoint: string, options: FetchOptions = {}) => {
-    return fetchWithAuth(`${API_BASE_URL}${endpoint}`, { ...options, method: 'GET' });
+    return fetchWithAuth(`${getBaseUrl()}${endpoint}`, { ...options, method: 'GET' });
   },
 
   post: async (endpoint: string, body: any, options: FetchOptions = {}) => {
-    return fetchWithAuth(`${API_BASE_URL}${endpoint}`, {
+    return fetchWithAuth(`${getBaseUrl()}${endpoint}`, {
       ...options,
       method: 'POST',
       headers: {
@@ -22,7 +30,7 @@ export const api = {
   },
   
   put: async (endpoint: string, body: any, options: FetchOptions = {}) => {
-    return fetchWithAuth(`${API_BASE_URL}${endpoint}`, {
+    return fetchWithAuth(`${getBaseUrl()}${endpoint}`, {
       ...options,
       method: 'PUT',
       headers: {
@@ -34,14 +42,13 @@ export const api = {
   },
 
   delete: async (endpoint: string, options: FetchOptions = {}) => {
-    return fetchWithAuth(`${API_BASE_URL}${endpoint}`, { ...options, method: 'DELETE' });
+    return fetchWithAuth(`${getBaseUrl()}${endpoint}`, { ...options, method: 'DELETE' });
   },
 };
 
 async function fetchWithAuth(url: string, options: FetchOptions) {
   const headers = new Headers(options.headers || {});
   
-  // Conditionally attach token if required (defaults to true for protected routes)
   const requireAuth = options.requireAuth ?? true;
 
   if (requireAuth) {
@@ -55,7 +62,6 @@ async function fetchWithAuth(url: string, options: FetchOptions) {
 
   const response = await fetch(url, { ...options, headers });
 
-  // Optional: Handle precise 401s globally (redirect to login)
   if (response.status === 401 && typeof window !== 'undefined') {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -70,3 +76,4 @@ async function fetchWithAuth(url: string, options: FetchOptions) {
 
   return data;
 }
+
