@@ -75,7 +75,10 @@ export default function SettlementsPage() {
     doc.text('IPL Betting – Weekly Settlement Report', 14, 18);
     doc.setFontSize(12);
     doc.setTextColor(148, 163, 184);
-    doc.text(`Week: ${week.week_label}  |  ${week.total_matches} matches settled  |  ${week.payout_confirmed ? '✓ Payout Confirmed' : '⏳ Payout Pending'}`, 14, 28);
+    const paidCount = (week.player_summaries || []).filter((ps: any) => ps.paid).length;
+    const totalPlayerCount = (week.player_summaries || []).length;
+    const paymentLabel = paidCount === totalPlayerCount && totalPlayerCount > 0 ? '✓ All Paid' : `${paidCount}/${totalPlayerCount} Paid`;
+    doc.text(`Week: ${week.week_label}  |  ${week.total_matches} matches settled  |  ${paymentLabel}`, 14, 28);
     doc.setFontSize(9);
     doc.text(`Generated: ${new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })} EST`, 14, 35);
 
@@ -94,7 +97,8 @@ export default function SettlementsPage() {
       `${ps.wins}`,
       `$${ps.total_won}`,
       `$${ps.total_paid}`,
-      `${ps.weekly_net >= 0 ? '+' : ''}$${ps.weekly_net}`
+      `${ps.weekly_net >= 0 ? '+' : ''}$${ps.weekly_net}`,
+      ps.paid ? 'PAID' : 'UNPAID'
     ]);
 
     const totalPot = week.player_summaries?.reduce((s: number, ps: any) => s + ps.total_paid, 0) || 0;
@@ -102,9 +106,9 @@ export default function SettlementsPage() {
 
     autoTable(doc, {
       startY: y,
-      head: [['Player', 'Matches', 'Wins', 'Won', 'Paid', 'Weekly Net']],
+      head: [['Player', 'Matches', 'Wins', 'Won', 'Paid', 'Weekly Net', 'Status']],
       body: summaryRows,
-      foot: [['TOTAL', '', '', `$${totalWon}`, `$${totalPot}`, '']],
+      foot: [['TOTAL', '', '', `$${totalWon}`, `$${totalPot}`, '', '']],
       headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold', fontSize: 10 },
       footStyles: { fillColor: [241, 245, 249], textColor: [30, 30, 30], fontStyle: 'bold', fontSize: 10 },
       bodyStyles: { fontSize: 10 },
@@ -113,13 +117,19 @@ export default function SettlementsPage() {
         0: { fontStyle: 'bold' },
         1: { halign: 'center' },
         2: { halign: 'center' },
-        5: { fontStyle: 'bold' }
+        5: { fontStyle: 'bold' },
+        6: { halign: 'center', fontStyle: 'bold' }
       },
       didParseCell: (data: any) => {
         if (data.section === 'body' && data.column.index === 5) {
           const val = data.cell.raw as string;
           if (val.startsWith('+')) { data.cell.styles.textColor = [5, 150, 105]; }
           else if (val.startsWith('-')) { data.cell.styles.textColor = [220, 38, 38]; }
+        }
+        if (data.section === 'body' && data.column.index === 6) {
+          const val = data.cell.raw as string;
+          if (val === 'PAID') { data.cell.styles.textColor = [5, 150, 105]; }
+          else { data.cell.styles.textColor = [220, 38, 38]; }
         }
       },
       margin: { left: 14, right: 14 },
