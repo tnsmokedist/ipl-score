@@ -244,7 +244,7 @@ export default function SettingsPage() {
             { step: 2, text: <>Go to <span className="text-white font-medium">Players</span> to register the 8 betting participants (or they are auto-seeded).</> },
             { step: 3, text: <>Go to <span className="text-white font-medium">Draws</span>, select a match, click <span className="text-primary font-medium">Enter Draw</span>, and assign each player their A/B position code.</> },
             { step: 4, text: <>After the match, click <span className="text-primary font-medium">Enter Scores</span>, type in cricket player names and their runs. Hit <span className="text-emerald-400 font-medium">Settle Match</span>.</> },
-            { step: 5, text: <>Go to <span className="text-white font-medium">Settlements</span> every Tuesday to see who owes what.</> },
+            { step: 5, text: <>Go to <span className="text-white font-medium">Settlements</span> to see each player&apos;s net balance and match-by-match breakdown.</> },
           ].map(({ step, text }) => (
             <div key={step} className="flex items-start gap-3 text-sm">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5 text-primary text-xs font-bold border border-primary/10 score-display">

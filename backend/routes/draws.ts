@@ -445,66 +445,124 @@ router.put('/unconfirm-week-payout/:weekId', async (req, res) => {
   }
 });
 
-// ─── Settlement Report (Weekly Grouped) ───
+// ─── Settlement Report (Per-Player Grouped) ───
 router.get('/settlement', async (req, res) => {
   try {
-    // Get all weekly draws with results
-    const weeks = await prisma.weeklyDraw.findMany({
-      orderBy: { week_start: 'desc' },
-      include: {
-        results: {
-          include: { match: true, betting_player: true },
-          orderBy: { total_runs: 'desc' }
-        }
-      }
-    });
-
-    // Get all players
+    // Get all active players
     const players = await prisma.bettingPlayer.findMany({
       where: { is_active: true },
       orderBy: { net_balance: 'desc' }
     });
 
-    // Group results by week and player
-    const weeklyData = weeks.map(week => {
-      // Only include results from COMPLETED matches (not filtering by total_runs > 0
-      // because a player's batsmen can genuinely score 0 but they still paid into the pot)
-      const settledResults = week.results.filter(r => r.match?.status === 'COMPLETED');
-      const playerSummaries = players.map(p => {
-        const playerResults = settledResults.filter(r => r.betting_player_id === p.id);
-        const wins = playerResults.filter(r => r.is_winner);
-        const totalWon = wins.reduce((sum, r) => sum + r.payout, 0);
-        // Each match the player was in, they paid the bet_amount
-        const totalPaid = playerResults.reduce((sum, r) => sum + (r.match?.bet_amount || 100), 0);
-        const weeklyNet = totalWon - totalPaid;
-        return {
-          player_id: p.id,
-          player_name: p.name,
-          matches_played: playerResults.length,
-          wins: wins.length,
-          total_won: totalWon,
-          total_paid: totalPaid,
-          weekly_net: weeklyNet,
-          results: playerResults
-        };
-      }).filter(ps => ps.matches_played > 0).sort((a, b) => b.weekly_net - a.weekly_net);
-
-      return {
-        week_id: week.id,
-        week_label: week.week_label,
-        week_start: week.week_start,
-        week_end: week.week_end,
-        payout_confirmed: week.payout_confirmed,
-        payout_confirmed_at: week.payout_confirmed_at,
-        total_matches: new Set(settledResults.map(r => r.match_id)).size,
-        player_summaries: playerSummaries
-      };
+    // Get all match results from COMPLETED matches, grouped by player
+    const allResults = await prisma.matchResult.findMany({
+      where: { match: { status: 'COMPLETED' } },
+      include: {
+        match: true,
+        betting_player: true,
+        weekly_draw: true
+      },
+      orderBy: { match: { date: 'desc' } }
     });
 
-    res.json({ weeks: weeklyData, players });
+    // Build per-player settlement data
+    const playerSettlements = players.map(p => {
+      const playerResults = allResults.filter(r => r.betting_player_id === p.id);
+      const wins = playerResults.filter(r => r.is_winner);
+      const totalWon = wins.reduce((sum, r) => sum + r.payout, 0);
+      const totalPaid = playerResults.reduce((sum, r) => sum + (r.match?.bet_amount || 100), 0);
+      const netBalance = totalWon - totalPaid;
+
+      // Group results by week for nested display
+      const weekMap = new Map<string, any>();
+      playerResults.forEach(r => {
+        const weekId = r.weekly_draw_id;
+        if (!weekMap.has(weekId)) {
+          weekMap.set(weekId, {
+            week_id: r.weekly_draw?.id,
+            week_label: r.weekly_draw?.week_label || 'Unknown',
+            payout_confirmed: r.weekly_draw?.payout_confirmed || false,
+            results: []
+          });
+        }
+        weekMap.get(weekId).results.push(r);
+      });
+
+      return {
+        player_id: p.id,
+        player_name: p.name,
+        total_matches: playerResults.length,
+        total_wins: wins.length,
+        total_won: totalWon,
+        total_paid: totalPaid,
+        net_balance: netBalance,
+        overall_net_balance: p.net_balance,
+        weeks: Array.from(weekMap.values()),
+        results: playerResults
+      };
+    }).filter(ps => ps.total_matches > 0 || ps.overall_net_balance !== 0)
+      .sort((a, b) => b.net_balance - a.net_balance);
+
+    res.json({ player_settlements: playerSettlements });
   } catch (error) {
     console.error('Settlement error:', error);
     res.status(500).json({ error: 'Failed to generate settlement' });
+  }
+});
+
+// ─── Edit Settlement (adjust payout for a specific match result) ───
+router.put('/settlement/:resultId', async (req, res) => {
+  try {
+    const { resultId } = req.params;
+    const { payout, is_winner } = req.body;
+
+    const existing = await prisma.matchResult.findUnique({
+      where: { id: resultId },
+      include: { betting_player: true, match: true }
+    });
+    if (!existing) return res.status(404).json({ error: 'Result not found' });
+
+    const oldPayout = existing.payout;
+    const oldIsWinner = existing.is_winner;
+    const betAmount = existing.match?.bet_amount || 100;
+
+    // Calculate the net difference to update player balance
+    const oldNet = oldIsWinner ? (oldPayout - betAmount) : (-betAmount);
+    const newPayout = payout !== undefined ? payout : oldPayout;
+    const newIsWinner = is_winner !== undefined ? is_winner : oldIsWinner;
+    const newNet = newIsWinner ? (newPayout - betAmount) : (-betAmount);
+    const netDiff = newNet - oldNet;
+
+    // Update the match result
+    await prisma.matchResult.update({
+      where: { id: resultId },
+      data: {
+        payout: newPayout,
+        is_winner: newIsWinner
+      }
+    });
+
+    // Adjust the player's balance
+    if (netDiff !== 0) {
+      const winDiff = newPayout - oldPayout;
+      await prisma.bettingPlayer.update({
+        where: { id: existing.betting_player_id },
+        data: {
+          total_winnings: { increment: winDiff > 0 ? winDiff : 0 },
+          net_balance: { increment: netDiff }
+        }
+      });
+    }
+
+    const updated = await prisma.matchResult.findUnique({
+      where: { id: resultId },
+      include: { betting_player: true, match: true }
+    });
+
+    res.json({ message: 'Settlement updated', result: updated });
+  } catch (error) {
+    console.error('Edit settlement error:', error);
+    res.status(500).json({ error: 'Failed to update settlement' });
   }
 });
 
