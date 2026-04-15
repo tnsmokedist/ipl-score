@@ -9,6 +9,7 @@ export default function SettlementsPage() {
   const [data, setData] = useState<any>({ weeks: [], players: [] });
   const [loading, setLoading] = useState(true);
   const [expandedWeek, setExpandedWeek] = useState<string | null>(null);
+  const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
   const [editingResult, setEditingResult] = useState<string | null>(null);
   const [editPayout, setEditPayout] = useState('');
@@ -253,32 +254,120 @@ export default function SettlementsPage() {
               <div className="border-t border-white/5">
                 {/* ★ Per-Player Weekly Settlement Cards — THE KEY FEATURE ★ */}
                 <div className="p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-3">Per-Player Settlement This Week</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500 mb-3">Per-Player Settlement This Week <span className="text-zinc-600 normal-case tracking-normal">— tap a player to see match details</span></p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {week.player_summaries?.map((ps: any) => (
-                      <div key={ps.player_id} className={`rounded-xl p-4 border transition-all ${
-                        ps.weekly_net > 0 ? 'border-emerald-500/20 bg-emerald-500/5' : 
-                        ps.weekly_net < 0 ? 'border-rose-500/20 bg-rose-500/5' : 
-                        'border-white/5 bg-white/5'
-                      }`}>
-                        <p className="text-sm font-semibold text-white mb-1">{ps.player_name}</p>
-                        <p className={`text-2xl font-bold ${ps.weekly_net > 0 ? 'text-emerald-400' : ps.weekly_net < 0 ? 'text-rose-400' : 'text-zinc-400'}`}>
-                          {ps.weekly_net >= 0 ? '+' : ''}${ps.weekly_net}
-                        </p>
-                        <div className="flex gap-3 mt-2 text-xs text-zinc-500">
-                          <span>{ps.wins}W / {ps.matches_played}M</span>
-                          <span>Won: <span className="text-emerald-400">${ps.total_won}</span></span>
-                          <span>Paid: <span className="text-rose-400">${ps.total_paid}</span></span>
+                    {week.player_summaries?.map((ps: any) => {
+                      const playerKey = `${week.week_id}_${ps.player_id}`;
+                      const isPlayerExpanded = expandedPlayer === playerKey;
+                      return (
+                        <div key={ps.player_id} className="col-span-1">
+                          <button onClick={() => setExpandedPlayer(isPlayerExpanded ? null : playerKey)}
+                            className={`w-full text-left rounded-xl p-4 border transition-all hover:scale-[1.02] cursor-pointer ${
+                              isPlayerExpanded ? 'ring-2 ring-primary/40 border-primary/30 bg-primary/5' :
+                              ps.weekly_net > 0 ? 'border-emerald-500/20 bg-emerald-500/5 hover:border-emerald-500/40' : 
+                              ps.weekly_net < 0 ? 'border-rose-500/20 bg-rose-500/5 hover:border-rose-500/40' : 
+                              'border-white/5 bg-white/5 hover:border-white/10'
+                            }`}>
+                            <div className="flex justify-between items-start">
+                              <p className="text-sm font-semibold text-white mb-1">{ps.player_name}</p>
+                              {isPlayerExpanded ? <ChevronUp className="h-3.5 w-3.5 text-zinc-400" /> : <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />}
+                            </div>
+                            <p className={`text-2xl font-bold ${ps.weekly_net > 0 ? 'text-emerald-400' : ps.weekly_net < 0 ? 'text-rose-400' : 'text-zinc-400'}`}>
+                              {ps.weekly_net >= 0 ? '+' : ''}${ps.weekly_net}
+                            </p>
+                            <div className="flex gap-3 mt-2 text-xs text-zinc-500">
+                              <span>{ps.wins}W / {ps.matches_played}M</span>
+                              <span>Won: <span className="text-emerald-400">${ps.total_won}</span></span>
+                              <span>Paid: <span className="text-rose-400">${ps.total_paid}</span></span>
+                            </div>
+                            <div className={`mt-2 text-xs font-medium px-2 py-1 rounded-lg inline-block ${
+                              ps.weekly_net > 0 ? 'bg-emerald-500/10 text-emerald-400' : 
+                              ps.weekly_net < 0 ? 'bg-rose-500/10 text-rose-400' : 'bg-zinc-500/10 text-zinc-400'
+                            }`}>
+                              {ps.weekly_net > 0 ? `Collects $${ps.weekly_net}` : ps.weekly_net < 0 ? `Owes $${Math.abs(ps.weekly_net)}` : 'Even'}
+                            </div>
+                          </button>
+
+                          {/* Expanded: Individual match results for this player */}
+                          {isPlayerExpanded && (
+                            <div className="mt-2 rounded-xl border border-white/5 bg-black/30 overflow-hidden">
+                              <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+                                <table className="min-w-full divide-y divide-white/5">
+                                  <thead>
+                                    <tr className="bg-white/5">
+                                      <th className="px-3 py-1.5 text-left text-[10px] font-medium uppercase text-zinc-400">Match</th>
+                                      <th className="px-3 py-1.5 text-left text-[10px] font-medium uppercase text-zinc-400">A</th>
+                                      <th className="px-3 py-1.5 text-left text-[10px] font-medium uppercase text-zinc-400">B</th>
+                                      <th className="px-3 py-1.5 text-left text-[10px] font-medium uppercase text-zinc-400">Total</th>
+                                      <th className="px-3 py-1.5 text-left text-[10px] font-medium uppercase text-zinc-400">Payout</th>
+                                      <th className="px-3 py-1.5 text-left text-[10px] font-medium uppercase text-zinc-400">Net</th>
+                                      {isAdmin && <th className="px-3 py-1.5 text-left text-[10px] font-medium uppercase text-zinc-400"></th>}
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-white/5">
+                                    {ps.results.map((r: any) => {
+                                      const betAmt = r.match?.bet_amount || 100;
+                                      const isEditing = editingResult === r.id;
+                                      return (
+                                        <tr key={r.id} className={r.is_winner ? 'bg-emerald-500/5' : 'hover:bg-white/5'}>
+                                          <td className="px-3 py-1.5 text-xs text-zinc-400 truncate max-w-[140px]">{r.match?.team_a_name} vs {r.match?.team_b_name}</td>
+                                          <td className="px-3 py-1.5">
+                                            <div className="text-xs text-zinc-400">{r.player_a_name || '—'}</div>
+                                            <div className="text-sm font-bold text-blue-400">{r.player_a_runs}</div>
+                                          </td>
+                                          <td className="px-3 py-1.5">
+                                            <div className="text-xs text-zinc-400">{r.player_b_name || '—'}</div>
+                                            <div className="text-sm font-bold text-blue-400">{r.player_b_runs}</div>
+                                          </td>
+                                          <td className="px-3 py-1.5 text-sm font-bold text-white">{r.total_runs}</td>
+                                          <td className="px-3 py-1.5">
+                                            {isEditing ? (
+                                              <input type="number" value={editPayout} onChange={e => setEditPayout(e.target.value)}
+                                                className="w-16 rounded-lg border border-primary/30 bg-white/5 px-2 py-1 text-xs text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                                                autoFocus />
+                                            ) : (
+                                              <span className="text-xs text-zinc-300">${r.payout}</span>
+                                            )}
+                                          </td>
+                                          <td className="px-3 py-1.5">
+                                            {r.is_winner ? (
+                                              <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">+${r.payout - betAmt}</span>
+                                            ) : r.total_runs > 0 ? (
+                                              <span className="text-xs text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded">-${betAmt}</span>
+                                            ) : <span className="text-xs text-zinc-600">—</span>}
+                                          </td>
+                                          {isAdmin && (
+                                            <td className="px-3 py-1.5">
+                                              {isEditing ? (
+                                                <div className="flex items-center gap-0.5">
+                                                  <button onClick={() => handleEditSave(r.id)} disabled={saving}
+                                                    className="rounded p-1 text-emerald-400 hover:bg-emerald-500/10 transition-colors disabled:opacity-50">
+                                                    {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                                                  </button>
+                                                  <button onClick={() => { setEditingResult(null); setEditPayout(''); }}
+                                                    className="rounded p-1 text-zinc-400 hover:bg-white/10 transition-colors">
+                                                    <X className="h-3.5 w-3.5" />
+                                                  </button>
+                                                </div>
+                                              ) : (
+                                                <button onClick={() => { setEditingResult(r.id); setEditPayout(String(r.payout)); }}
+                                                  className="rounded p-1 text-zinc-500 hover:bg-white/10 hover:text-white transition-colors">
+                                                  <Edit3 className="h-3.5 w-3.5" />
+                                                </button>
+                                              )}
+                                            </td>
+                                          )}
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        {/* Quick settlement tag */}
-                        <div className={`mt-2 text-xs font-medium px-2 py-1 rounded-lg inline-block ${
-                          ps.weekly_net > 0 ? 'bg-emerald-500/10 text-emerald-400' : 
-                          ps.weekly_net < 0 ? 'bg-rose-500/10 text-rose-400' : 'bg-zinc-500/10 text-zinc-400'
-                        }`}>
-                          {ps.weekly_net > 0 ? `Collects $${ps.weekly_net}` : ps.weekly_net < 0 ? `Owes $${Math.abs(ps.weekly_net)}` : 'Even'}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -320,82 +409,6 @@ export default function SettlementsPage() {
                       </div>
                     )}
                   </div>
-                </div>
-
-                {/* Detailed Results Table with Edit */}
-                <div className="overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-                  <table className="min-w-full divide-y divide-white/5">
-                    <thead>
-                      <tr className="bg-white/5">
-                        <th className="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-400">Player</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-400">Match</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-400">Batter A</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-400">A Runs</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-400">Batter B</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-400">B Runs</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-400">Total</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-400">Payout</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-400">Result</th>
-                        {isAdmin && <th className="px-4 py-2 text-left text-xs font-medium uppercase text-zinc-400">Edit</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5">
-                      {week.player_summaries?.flatMap((ps: any) =>
-                        ps.results.map((r: any) => {
-                          const betAmt = r.match?.bet_amount || 100;
-                          const isEditing = editingResult === r.id;
-                          return (
-                            <tr key={r.id} className={r.is_winner ? 'bg-emerald-500/5' : 'hover:bg-white/5'}>
-                              <td className="px-4 py-2 text-sm font-medium text-white">{ps.player_name}</td>
-                              <td className="px-4 py-2 text-xs text-zinc-400 truncate max-w-[180px]">{r.match?.team_a_name} vs {r.match?.team_b_name}</td>
-                              <td className="px-4 py-2 text-xs text-zinc-300">{r.player_a_name || '—'}</td>
-                              <td className="px-4 py-2 text-sm font-bold text-blue-400">{r.player_a_runs}</td>
-                              <td className="px-4 py-2 text-xs text-zinc-300">{r.player_b_name || '—'}</td>
-                              <td className="px-4 py-2 text-sm font-bold text-blue-400">{r.player_b_runs}</td>
-                              <td className="px-4 py-2 text-sm font-bold text-white">{r.total_runs}</td>
-                              <td className="px-4 py-2">
-                                {isEditing ? (
-                                  <input type="number" value={editPayout} onChange={e => setEditPayout(e.target.value)}
-                                    className="w-20 rounded-lg border border-primary/30 bg-white/5 px-2 py-1 text-sm text-white focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                                    autoFocus />
-                                ) : (
-                                  <span className="text-sm text-zinc-300">${r.payout}</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-2">
-                                {r.is_winner ? (
-                                  <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">+${r.payout - betAmt}</span>
-                                ) : r.total_runs > 0 ? (
-                                  <span className="text-xs text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded">-${betAmt}</span>
-                                ) : <span className="text-xs text-zinc-600">—</span>}
-                              </td>
-                              {isAdmin && (
-                                <td className="px-4 py-2">
-                                  {isEditing ? (
-                                    <div className="flex items-center gap-1">
-                                      <button onClick={() => handleEditSave(r.id)} disabled={saving}
-                                        className="rounded-lg p-1.5 text-emerald-400 hover:bg-emerald-500/10 transition-colors disabled:opacity-50">
-                                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                                      </button>
-                                      <button onClick={() => { setEditingResult(null); setEditPayout(''); }}
-                                        className="rounded-lg p-1.5 text-zinc-400 hover:bg-white/10 transition-colors">
-                                        <X className="h-4 w-4" />
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <button onClick={() => { setEditingResult(r.id); setEditPayout(String(r.payout)); }}
-                                      className="rounded-lg p-1.5 text-zinc-500 hover:bg-white/10 hover:text-white transition-colors">
-                                      <Edit3 className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                </td>
-                              )}
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
                 </div>
               </div>
             )}
