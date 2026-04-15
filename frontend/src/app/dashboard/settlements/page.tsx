@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
-import { DollarSign, Loader2, TrendingUp, TrendingDown, Trophy, CheckCircle2, ChevronDown, ChevronUp, BadgeCheck, FileDown, Undo2, Edit3, Check, X } from 'lucide-react';
+import { DollarSign, Loader2, TrendingUp, TrendingDown, Trophy, ChevronDown, ChevronUp, BadgeCheck, FileDown, Edit3, Check, X } from 'lucide-react';
 
 export default function SettlementsPage() {
   const [data, setData] = useState<any>({ weeks: [], players: [] });
@@ -27,19 +27,19 @@ export default function SettlementsPage() {
     finally { setLoading(false); }
   };
 
-  const confirmWeekPayout = async (weekId: string) => {
-    setConfirming(weekId);
+  const confirmPlayerPayout = async (weekId: string, playerId: string) => {
+    setConfirming(`${weekId}_${playerId}`);
     try {
-      await api.put(`/api/draws/confirm-week-payout/${weekId}`, {});
+      await api.put(`/api/draws/confirm-player-payout/${weekId}/${playerId}`, {});
       await fetchSettlement();
     } catch (e) { console.error(e); }
     finally { setConfirming(null); }
   };
 
-  const unconfirmWeekPayout = async (weekId: string) => {
-    setConfirming(weekId);
+  const unconfirmPlayerPayout = async (weekId: string, playerId: string) => {
+    setConfirming(`${weekId}_${playerId}`);
     try {
-      await api.put(`/api/draws/unconfirm-week-payout/${weekId}`, {});
+      await api.put(`/api/draws/unconfirm-player-payout/${weekId}/${playerId}`, {});
       await fetchSettlement();
     } catch (e) { console.error(e); }
     finally { setConfirming(null); }
@@ -242,7 +242,14 @@ export default function SettlementsPage() {
                 <div className="text-left">
                   <h3 className="text-sm font-semibold text-white flex items-center gap-2">
                     {week.week_label}
-                    {week.payout_confirmed && <span className="inline-flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded"><BadgeCheck className="h-3 w-3" /> Paid</span>}
+                    {week.payout_confirmed 
+                      ? <span className="inline-flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded"><BadgeCheck className="h-3 w-3" /> All Paid</span>
+                      : (() => {
+                          const paidCount = week.player_summaries?.filter((ps: any) => ps.paid).length || 0;
+                          const totalCount = week.player_summaries?.length || 0;
+                          return paidCount > 0 ? <span className="inline-flex items-center gap-1 text-xs text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">{paidCount}/{totalCount} Paid</span> : null;
+                        })()
+                    }
                   </h3>
                   <p className="text-xs text-zinc-500">{week.total_matches} match(es) · Total pot: ${totalPot} · Paid out: ${totalWon}</p>
                 </div>
@@ -269,7 +276,10 @@ export default function SettlementsPage() {
                               'border-white/5 bg-white/5 hover:border-white/10'
                             }`}>
                             <div className="flex justify-between items-start">
-                              <p className="text-sm font-semibold text-white mb-1">{ps.player_name}</p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-semibold text-white">{ps.player_name}</p>
+                                {ps.paid && <BadgeCheck className="h-4 w-4 text-emerald-400" />}
+                              </div>
                               {isPlayerExpanded ? <ChevronUp className="h-3.5 w-3.5 text-zinc-400" /> : <ChevronDown className="h-3.5 w-3.5 text-zinc-500" />}
                             </div>
                             <p className={`text-2xl font-bold ${ps.weekly_net > 0 ? 'text-emerald-400' : ps.weekly_net < 0 ? 'text-rose-400' : 'text-zinc-400'}`}>
@@ -280,11 +290,17 @@ export default function SettlementsPage() {
                               <span>Won: <span className="text-emerald-400">${ps.total_won}</span></span>
                               <span>Paid: <span className="text-rose-400">${ps.total_paid}</span></span>
                             </div>
-                            <div className={`mt-2 text-xs font-medium px-2 py-1 rounded-lg inline-block ${
-                              ps.weekly_net > 0 ? 'bg-emerald-500/10 text-emerald-400' : 
-                              ps.weekly_net < 0 ? 'bg-rose-500/10 text-rose-400' : 'bg-zinc-500/10 text-zinc-400'
-                            }`}>
-                              {ps.weekly_net > 0 ? `Collects $${ps.weekly_net}` : ps.weekly_net < 0 ? `Owes $${Math.abs(ps.weekly_net)}` : 'Even'}
+                            <div className="flex items-center gap-2 mt-2">
+                              <div className={`text-xs font-medium px-2 py-1 rounded-lg inline-block ${
+                                ps.weekly_net > 0 ? 'bg-emerald-500/10 text-emerald-400' : 
+                                ps.weekly_net < 0 ? 'bg-rose-500/10 text-rose-400' : 'bg-zinc-500/10 text-zinc-400'
+                              }`}>
+                                {ps.weekly_net > 0 ? `Collects $${ps.weekly_net}` : ps.weekly_net < 0 ? `Owes $${Math.abs(ps.weekly_net)}` : 'Even'}
+                              </div>
+                              {ps.paid 
+                                ? <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20">✓ Settled</span>
+                                : <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20">Unpaid</span>
+                              }
                             </div>
                           </button>
 
@@ -371,44 +387,56 @@ export default function SettlementsPage() {
                   </div>
                 </div>
 
-                {/* Payout Actions */}
-                <div className="mx-4 mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-white">Weekly Payout Summary</p>
-                    <div className="flex flex-wrap gap-4 mt-2 text-xs">
-                      <span className="text-zinc-400">{week.total_matches} matches settled</span>
-                      <span className="text-zinc-400">Total pot: <span className="text-white font-medium">${totalPot}</span></span>
-                      <span className="text-zinc-400">Total won: <span className="text-emerald-400 font-medium">${totalWon}</span></span>
+                {/* Payout Actions — Per-Player Confirm */}
+                <div className="mx-4 mb-4 rounded-xl border border-primary/30 bg-primary/5 p-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Payment Status</p>
+                      <div className="flex flex-wrap gap-4 mt-1 text-xs">
+                        <span className="text-zinc-400">{week.total_matches} matches · Pot: <span className="text-white font-medium">${totalPot}</span></span>
+                        {(() => {
+                          const paidCount = week.player_summaries?.filter((ps: any) => ps.paid).length || 0;
+                          const totalCount = week.player_summaries?.length || 0;
+                          const unpaidCount = totalCount - paidCount;
+                          return (
+                            <>
+                              <span className="text-emerald-400 font-medium">{paidCount} paid</span>
+                              {unpaidCount > 0 && <span className="text-amber-400 font-medium">{unpaidCount} unpaid</span>}
+                              {unpaidCount === 0 && totalCount > 0 && <span className="text-emerald-400 font-medium">✓ All settled!</span>}
+                            </>
+                          );
+                        })()}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-2 shrink-0">
                     <button onClick={() => exportWeekPDF(week)}
-                      className="flex items-center gap-2 rounded-xl bg-white/10 border border-white/10 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/20 transition-colors">
+                      className="flex items-center gap-2 rounded-xl bg-white/10 border border-white/10 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/20 transition-colors shrink-0">
                       <FileDown className="h-4 w-4" />
                       Export PDF
                     </button>
-                    {isAdmin && !week.payout_confirmed && (
-                      <button onClick={() => confirmWeekPayout(week.week_id)} disabled={confirming === week.week_id}
-                        className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors">
-                        {confirming === week.week_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}
-                        Confirm Week Payout
-                      </button>
-                    )}
-                    {week.payout_confirmed && (
-                      <div className="flex items-center gap-2">
-                        <span className="flex items-center gap-2 text-sm font-medium text-emerald-400 bg-emerald-500/10 px-4 py-2 rounded-xl border border-emerald-500/20">
-                          <BadgeCheck className="h-4 w-4" /> Payout Confirmed
-                        </span>
-                        {isAdmin && (
-                          <button onClick={() => unconfirmWeekPayout(week.week_id)} disabled={confirming === week.week_id}
-                            className="flex items-center gap-2 rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-sm font-medium text-zinc-400 hover:bg-white/10 hover:text-white disabled:opacity-50 transition-colors">
-                            {confirming === week.week_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Undo2 className="h-4 w-4" />}
-                            Undo
-                          </button>
-                        )}
-                      </div>
-                    )}
                   </div>
+
+                  {/* Per-player payment buttons */}
+                  {isAdmin && (
+                    <div className="flex flex-wrap gap-2 mt-2 pt-3 border-t border-white/5">
+                      {week.player_summaries?.map((ps: any) => {
+                        const key = `${week.week_id}_${ps.player_id}`;
+                        const isConfirming = confirming === key;
+                        return ps.paid ? (
+                          <button key={ps.player_id} onClick={() => unconfirmPlayerPayout(week.week_id, ps.player_id)} disabled={isConfirming}
+                            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors disabled:opacity-50">
+                            {isConfirming ? <Loader2 className="h-3 w-3 animate-spin" /> : <BadgeCheck className="h-3 w-3" />}
+                            {ps.player_name} ✓
+                          </button>
+                        ) : (
+                          <button key={ps.player_id} onClick={() => confirmPlayerPayout(week.week_id, ps.player_id)} disabled={isConfirming}
+                            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors disabled:opacity-50">
+                            {isConfirming ? <Loader2 className="h-3 w-3 animate-spin" /> : <DollarSign className="h-3 w-3" />}
+                            {ps.player_name} — Mark Paid
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

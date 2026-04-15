@@ -401,19 +401,14 @@ router.put('/confirm-payment/:resultId', async (req, res) => {
 router.put('/confirm-week-payout/:weekId', async (req, res) => {
   try {
     const { weekId } = req.params;
-
-    // Mark all results in this week as payment confirmed
     await prisma.matchResult.updateMany({
       where: { weekly_draw_id: weekId },
       data: { payment_confirmed: true, payment_confirmed_at: new Date() }
     });
-
-    // Mark the week itself as payout confirmed
     const updated = await prisma.weeklyDraw.update({
       where: { id: weekId },
       data: { payout_confirmed: true, payout_confirmed_at: new Date() }
     });
-
     res.json({ message: 'Weekly payout confirmed!', week: updated });
   } catch (error) {
     console.error('Week payout error:', error);
@@ -425,23 +420,65 @@ router.put('/confirm-week-payout/:weekId', async (req, res) => {
 router.put('/unconfirm-week-payout/:weekId', async (req, res) => {
   try {
     const { weekId } = req.params;
-
-    // Unmark all results in this week
     await prisma.matchResult.updateMany({
       where: { weekly_draw_id: weekId },
       data: { payment_confirmed: false, payment_confirmed_at: null }
     });
-
-    // Unmark the week itself
     const updated = await prisma.weeklyDraw.update({
       where: { id: weekId },
       data: { payout_confirmed: false, payout_confirmed_at: null }
     });
-
-    res.json({ message: 'Weekly payout unconfirmed. You can now make changes.', week: updated });
+    res.json({ message: 'Weekly payout unconfirmed.', week: updated });
   } catch (error) {
     console.error('Week unconfirm error:', error);
     res.status(500).json({ error: 'Failed to unconfirm weekly payout' });
+  }
+});
+
+// ─── Confirm Single Player's Weekly Payout ───
+router.put('/confirm-player-payout/:weekId/:playerId', async (req, res) => {
+  try {
+    const { weekId, playerId } = req.params;
+    await prisma.matchResult.updateMany({
+      where: { weekly_draw_id: weekId, betting_player_id: playerId },
+      data: { payment_confirmed: true, payment_confirmed_at: new Date() }
+    });
+
+    // Check if ALL players in this week are now confirmed
+    const remaining = await prisma.matchResult.count({
+      where: { weekly_draw_id: weekId, payment_confirmed: false, match: { status: 'COMPLETED' } }
+    });
+    if (remaining === 0) {
+      await prisma.weeklyDraw.update({
+        where: { id: weekId },
+        data: { payout_confirmed: true, payout_confirmed_at: new Date() }
+      });
+    }
+
+    res.json({ message: 'Player payout confirmed!' });
+  } catch (error) {
+    console.error('Player payout error:', error);
+    res.status(500).json({ error: 'Failed to confirm player payout' });
+  }
+});
+
+// ─── Unconfirm Single Player's Weekly Payout ───
+router.put('/unconfirm-player-payout/:weekId/:playerId', async (req, res) => {
+  try {
+    const { weekId, playerId } = req.params;
+    await prisma.matchResult.updateMany({
+      where: { weekly_draw_id: weekId, betting_player_id: playerId },
+      data: { payment_confirmed: false, payment_confirmed_at: null }
+    });
+    // If any player is unconfirmed, week is no longer fully confirmed
+    await prisma.weeklyDraw.update({
+      where: { id: weekId },
+      data: { payout_confirmed: false, payout_confirmed_at: null }
+    });
+    res.json({ message: 'Player payout unconfirmed.' });
+  } catch (error) {
+    console.error('Player unconfirm error:', error);
+    res.status(500).json({ error: 'Failed to unconfirm player payout' });
   }
 });
 
@@ -474,6 +511,7 @@ router.get('/settlement', async (req, res) => {
         const totalWon = wins.reduce((sum, r) => sum + r.payout, 0);
         const totalPaid = playerResults.reduce((sum, r) => sum + (r.match?.bet_amount || 100), 0);
         const weeklyNet = totalWon - totalPaid;
+        const allConfirmed = playerResults.length > 0 && playerResults.every(r => r.payment_confirmed);
         return {
           player_id: p.id,
           player_name: p.name,
@@ -482,6 +520,7 @@ router.get('/settlement', async (req, res) => {
           total_won: totalWon,
           total_paid: totalPaid,
           weekly_net: weeklyNet,
+          paid: allConfirmed,
           results: playerResults
         };
       }).filter(ps => ps.matches_played > 0).sort((a, b) => b.weekly_net - a.weekly_net);
