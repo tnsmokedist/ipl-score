@@ -58,8 +58,8 @@ export default function SettlementsPage() {
     finally { setSaving(false); }
   };
 
-  // ─── Export Week Report as PDF ───
-  const exportWeekPDF = async (week: any) => {
+  // ─── Build the jsPDF document for a given week ───
+  const buildWeekPDFDoc = async (week: any) => {
     const { jsPDF } = await import('jspdf');
     const { autoTable } = await import('jspdf-autotable');
 
@@ -203,7 +203,38 @@ export default function SettlementsPage() {
       doc.text('All Star Group', pageW - 14, doc.internal.pageSize.getHeight() - 8, { align: 'right' });
     }
 
-    doc.save(`IPL_Settlement_${week.week_label.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`);
+    return doc;
+  };
+
+  // ─── Export PDF: desktop download ───
+  const exportWeekPDF = async (week: any) => {
+    const doc = await buildWeekPDFDoc(week);
+    const fileName = `IPL_Settlement_${week.week_label.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+
+    // iOS Safari: Web Share API (iPhone) — opens native share sheet
+    if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare) {
+      try {
+        const blob = doc.output('blob');
+        const file = new File([blob], fileName, { type: 'application/pdf' });
+        if (navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: `Settlement – ${week.week_label}` });
+          return;
+        }
+      } catch (err: any) {
+        // User cancelled share — don't fall through to download
+        if (err?.name === 'AbortError') return;
+      }
+    }
+
+    // Fallback: open blob URL in new tab (works in iOS Safari as a viewer)
+    // and also triggers download on desktop
+    const isMobile = /iphone|ipad|ipod|android/i.test(navigator?.userAgent || '');
+    if (isMobile) {
+      const blobUrl = doc.output('bloburl') as unknown as string;
+      window.open(blobUrl, '_blank');
+    } else {
+      doc.save(fileName);
+    }
   };
 
   if (loading) return <div className="flex h-64 items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
