@@ -14,7 +14,7 @@ router.post('/sync-matches', async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch schedule from Cricbuzz. Try again later.' });
     }
 
-    let created = 0, updated = 0;
+    let created = 0, updated = 0, datesFixed = 0;
     for (const m of cbMatches) {
       const apiId = `cb_${m.cricbuzz_id}`;
       const existing = await prisma.iplMatch.findFirst({
@@ -22,22 +22,30 @@ router.post('/sync-matches', async (req, res) => {
       });
 
       if (existing) {
-        // Update status if changed
-        if (m.status && m.status !== 'Upcoming') {
-          await prisma.iplMatch.update({
-            where: { id: existing.id },
-            data: {
-              team_a_name: m.team_a_name,
-              team_b_name: m.team_b_name,
-            }
-          });
-          updated++;
+        // Always update team names + date if Cricbuzz provides a real start_date
+        const updateData: any = {
+          team_a_name: m.team_a_name,
+          team_b_name: m.team_b_name,
+        };
+        // If Cricbuzz provides a real date AND it differs from what we have, update it
+        if (m.start_date) {
+          const cbDate = new Date(m.start_date);
+          const existingDate = new Date(existing.date);
+          // Check if dates differ by more than 12 hours (i.e. different day)
+          if (Math.abs(cbDate.getTime() - existingDate.getTime()) > 12 * 60 * 60 * 1000) {
+            updateData.date = cbDate;
+            datesFixed++;
+            console.log(`[Sync] Fixed date for ${m.team_a_name} vs ${m.team_b_name}: ${existingDate.toISOString()} → ${cbDate.toISOString()}`);
+          }
         }
+        await prisma.iplMatch.update({
+          where: { id: existing.id },
+          data: updateData
+        });
+        updated++;
       } else {
-        // Create new match
-        // Date: for matches without dates from Cricbuzz, calculate from match number
-        // IPL starts March 28 2026 with 1 match/day, sometimes 2/day on weekends
-        const matchDate = estimateMatchDate(m.match_number);
+        // Create new match — prefer real Cricbuzz date, fall back to estimate
+        const matchDate = m.start_date || estimateMatchDate(m.match_number);
 
         await prisma.iplMatch.create({
           data: {
@@ -47,20 +55,105 @@ router.post('/sync-matches', async (req, res) => {
             team_b_name: m.team_b_name,
             venue: '',
             bet_amount: 100,
-            status: m.status === 'Upcoming' || m.status === 'Preview' ? 'PENDING' : 'PENDING'
+            status: 'PENDING'
           }
         });
         created++;
       }
     }
 
-    console.log(`[Sync] Created ${created}, Updated ${updated} matches`);
-    res.json({ message: `Synced ${cbMatches.length} IPL matches from Cricbuzz!`, created, updated });
+    // After syncing dates, auto-fix any weekly draws that now have new matches in range
+    if (datesFixed > 0) {
+      console.log(`[Sync] ${datesFixed} match dates corrected — checking weekly draws for missing results...`);
+      await backfillDrawResults();
+    }
+
+    console.log(`[Sync] Created ${created}, Updated ${updated}, Dates fixed ${datesFixed}`);
+    res.json({ message: `Synced ${cbMatches.length} IPL matches from Cricbuzz! ${datesFixed} dates corrected.`, created, updated, datesFixed });
   } catch (error) {
     console.error('Sync error:', error);
     res.status(500).json({ error: 'Failed to sync matches' });
   }
 });
+
+// ─── Fix Dates: Force update ALL match dates from Cricbuzz + backfill draw results ───
+router.post('/fix-dates', async (req, res) => {
+  try {
+    console.log('[FixDates] Forcing date update for all matches from Cricbuzz...');
+    const cbMatches = await scrapeIPLSchedule();
+    if (cbMatches.length === 0) {
+      return res.status(500).json({ error: 'Failed to fetch schedule from Cricbuzz.' });
+    }
+
+    let fixed = 0;
+    for (const m of cbMatches) {
+      if (!m.start_date) continue;
+      const apiId = `cb_${m.cricbuzz_id}`;
+      const existing = await prisma.iplMatch.findFirst({ where: { api_match_id: apiId } });
+      if (existing) {
+        const cbDate = new Date(m.start_date);
+        const existingDate = new Date(existing.date);
+        if (Math.abs(cbDate.getTime() - existingDate.getTime()) > 2 * 60 * 60 * 1000) {
+          await prisma.iplMatch.update({
+            where: { id: existing.id },
+            data: { date: cbDate }
+          });
+          console.log(`[FixDates] ${m.team_a_name} vs ${m.team_b_name}: ${existingDate.toISOString().split('T')[0]} → ${cbDate.toISOString().split('T')[0]}`);
+          fixed++;
+        }
+      }
+    }
+
+    // Backfill missing MatchResult rows for all draws
+    const backfilled = await backfillDrawResults();
+
+    console.log(`[FixDates] Done! ${fixed} dates fixed, ${backfilled} new match results created.`);
+    res.json({ message: `Fixed ${fixed} match dates, backfilled ${backfilled} draw results.`, fixed, backfilled });
+  } catch (error) {
+    console.error('Fix dates error:', error);
+    res.status(500).json({ error: 'Failed to fix dates' });
+  }
+});
+
+// ─── Helper: Backfill MatchResult rows for all weekly draws ───
+async function backfillDrawResults(): Promise<number> {
+  let totalCreated = 0;
+  const allWeeks = await prisma.weeklyDraw.findMany({
+    include: { entries: true }
+  });
+
+  for (const week of allWeeks) {
+    const matchesInRange = await prisma.iplMatch.findMany({
+      where: { date: { gte: week.week_start, lte: week.week_end } }
+    });
+
+    for (const match of matchesInRange) {
+      for (const entry of week.entries) {
+        const existing = await prisma.matchResult.findFirst({
+          where: {
+            weekly_draw_id: week.id,
+            match_id: match.id,
+            betting_player_id: entry.betting_player_id
+          }
+        });
+        if (!existing) {
+          await prisma.matchResult.create({
+            data: {
+              weekly_draw_id: week.id,
+              match_id: match.id,
+              betting_player_id: entry.betting_player_id,
+              team_a_position: entry.team_a_position,
+              team_b_position: entry.team_b_position,
+            }
+          });
+          totalCreated++;
+          console.log(`[Backfill] Created result for ${match.team_a_name} vs ${match.team_b_name} in week "${week.week_label}"`);
+        }
+      }
+    }
+  }
+  return totalCreated;
+}
 
 // ─── Seed initial data (players + admin) ───
 router.post('/seed', async (req, res) => {
@@ -145,61 +238,47 @@ router.get('/top-batsmen', async (req, res) => {
 export default router;
 
 // ─── Helper: map match number to actual IPL 2026 date ───
-// Verified against Cricbuzz (user-provided screenshot)
-// IPL 2026: 70 matches, Mar 28 - May 31, one game/day early, doubleheaders on weekends later
+// IPL 2026: ~74 matches, Mar 28 - May 31
+// Pattern: 1 game weekdays, 2 games on Sat/Sun. Playoffs late May.
 function estimateMatchDate(matchNumber: number): Date {
   const schedule: Record<number, string> = {
-    // Week 0: Mar 28 (Sat) – Mar 31 (Tue) — opening week, 1 game/day
-    1: '2026-03-28',    // SRH vs RCB
-    2: '2026-03-29',    // KKR vs MI
-    3: '2026-03-30',    // CSK vs RR
-    4: '2026-03-31',    // GT vs PBKS
-
-    // Week 1: Apr 1 (Wed) – Apr 7 (Tue) — 1 game/day
-    5: '2026-04-01',    // LSG vs DC
-    6: '2026-04-02',    // SRH vs KKR
-    7: '2026-04-03',    // CSK vs PBKS
-    8: '2026-04-04',    // MI vs DC
-    9: '2026-04-05',    // RR vs GT
-    10: '2026-04-06',   // SRH vs LSG
-    11: '2026-04-07',   // RCB vs CSK
-
-    // Apr 7 has 2nd game too
-    12: '2026-04-07',   // KKR vs PBKS
-
-    // Week 2: Apr 8 (Wed) – Apr 14 (Tue)
-    13: '2026-04-08',   // RR vs MI  
-    14: '2026-04-08',   // GT vs DC
-    15: '2026-04-09',   // KKR vs LSG
-    16: '2026-04-10',   // RCB vs RR
-    17: '2026-04-11',   // SRH vs PBKS
-    18: '2026-04-11',   // CSK vs DC
-    19: '2026-04-12',   // LSG vs GT
-    20: '2026-04-12',   // RCB vs MI
-    21: '2026-04-13',   // SRH vs RR
-    22: '2026-04-14',   // CSK vs KKR
-
-    // Week 3: Apr 15 (Wed) – Apr 21 (Tue) 
-    23: '2026-04-15',   // RCB vs LSG
-    24: '2026-04-16',   // MI vs PBKS
-    25: '2026-04-16',   // GT vs CSK
-    26: '2026-04-17',   // DC vs RR
-    27: '2026-04-18',   // KKR vs SRH
-    28: '2026-04-19',   // MI vs GT
-    29: '2026-04-19',   // PBKS vs LSG
-    30: '2026-04-20',   // RCB vs DC
-    31: '2026-04-20',   // CSK vs SRH
+    // Week 0: Mar 28 – Mar 31
+    1: '2026-03-28', 2: '2026-03-29', 3: '2026-03-30', 4: '2026-03-31',
+    // Week 1: Apr 1 – Apr 7
+    5: '2026-04-01', 6: '2026-04-02', 7: '2026-04-03', 8: '2026-04-04',
+    9: '2026-04-05', 10: '2026-04-06', 11: '2026-04-07', 12: '2026-04-07',
+    // Week 2: Apr 8 – Apr 14
+    13: '2026-04-08', 14: '2026-04-08', 15: '2026-04-09', 16: '2026-04-10',
+    17: '2026-04-11', 18: '2026-04-11', 19: '2026-04-12', 20: '2026-04-12',
+    21: '2026-04-13', 22: '2026-04-14',
+    // Week 3: Apr 15 – Apr 21
+    23: '2026-04-15', 24: '2026-04-16', 25: '2026-04-16', 26: '2026-04-17',
+    27: '2026-04-18', 28: '2026-04-19', 29: '2026-04-19', 30: '2026-04-20', 31: '2026-04-20',
+    // Week 4: Apr 22 – Apr 28
+    32: '2026-04-22', 33: '2026-04-23', 34: '2026-04-24', 35: '2026-04-25',
+    36: '2026-04-25', 37: '2026-04-26', 38: '2026-04-26', 39: '2026-04-27', 40: '2026-04-28',
+    // Week 5: Apr 29 – May 5
+    41: '2026-04-29', 42: '2026-04-30', 43: '2026-05-01', 44: '2026-05-02',
+    45: '2026-05-02', 46: '2026-05-03', 47: '2026-05-03', 48: '2026-05-04', 49: '2026-05-05',
+    // Week 6: May 6 – May 12
+    50: '2026-05-06', 51: '2026-05-07', 52: '2026-05-08', 53: '2026-05-09',
+    54: '2026-05-09', 55: '2026-05-10', 56: '2026-05-10', 57: '2026-05-11', 58: '2026-05-12',
+    // Week 7: May 13 – May 19
+    59: '2026-05-13', 60: '2026-05-14', 61: '2026-05-15', 62: '2026-05-16',
+    63: '2026-05-16', 64: '2026-05-17', 65: '2026-05-17', 66: '2026-05-18', 67: '2026-05-19',
+    // Week 8: May 20 – May 26 (final league + playoffs)
+    68: '2026-05-20', 69: '2026-05-21', 70: '2026-05-22',
+    71: '2026-05-23', 72: '2026-05-25', 73: '2026-05-27', 74: '2026-05-29',
   };
 
   if (schedule[matchNumber]) {
     return new Date(schedule[matchNumber] + 'T14:00:00Z');
   }
 
-  // Matches 32-70: continue daily/doubleheader pattern from Apr 21
-  const baseDate = new Date('2026-04-21T14:00:00Z');
-  const offset = matchNumber - 32;
+  // Beyond 74: unlikely, but space ~1 game/day from May 30
+  const baseDate = new Date('2026-05-30T14:00:00Z');
+  const offset = matchNumber - 75;
   const d = new Date(baseDate);
-  d.setDate(d.getDate() + Math.floor(offset / 2));
-  if (offset % 2 === 1) d.setHours(d.getHours() + 4);
+  d.setDate(d.getDate() + offset);
   return d;
 }
