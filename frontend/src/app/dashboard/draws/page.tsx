@@ -250,13 +250,14 @@ export default function DrawsPage() {
             {(selectedWeek.matches || []).map((m: any) => {
               const isCompleted = m.status === 'COMPLETED';
               const hasResults = selectedWeek.results?.some((r: any) => r.match_id === m.id && r.total_runs > 0);
+              const isSettled = isCompleted && hasResults;
               // Find winners for this match
-              const winners = isCompleted ? (selectedWeek.results || []).filter((r: any) => r.match_id === m.id && r.is_winner).map((r: any) => r.betting_player?.name).filter(Boolean) : [];
+              const winners = isSettled ? (selectedWeek.results || []).filter((r: any) => r.match_id === m.id && r.is_winner).map((r: any) => r.betting_player?.name).filter(Boolean) : [];
               return (
                 <div key={m.id} onClick={() => loadMatchResults(m.id)} className={`cursor-pointer rounded-xl p-4 transition-premium ${selectedMatch === m.id ? 'card-elevated border border-primary/30' : 'card-glass hover:border-white/12'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-[11px] font-bold uppercase px-2.5 py-0.5 rounded-md tracking-wider ${isCompleted ? 'badge-settled' : 'badge-pending'}`}>{isCompleted ? 'Settled' : 'Pending'}</span>
+                      <span className={`text-[11px] font-bold uppercase px-2.5 py-0.5 rounded-md tracking-wider ${isSettled ? 'badge-settled' : 'badge-pending'}`}>{isSettled ? 'Settled' : 'Pending'}</span>
                       {winners.length > 0 && (
                         <span className="text-xs font-semibold text-amber-300/90">🏆 {winners.join(', ')}</span>
                       )}
@@ -265,7 +266,7 @@ export default function DrawsPage() {
                   </div>
                   <p className="text-sm text-white font-medium truncate">{m.team_a_name} <span className="text-zinc-600">vs</span> {m.team_b_name}</p>
                   <div className="flex gap-2 mt-3">
-                    {isAdmin && !isCompleted && (
+                    {isAdmin && !hasResults && (
                       <div className="flex gap-2">
                         <button onClick={(e) => { e.stopPropagation(); autoFetchScores(m.id); }}
                           disabled={fetching === m.id}
