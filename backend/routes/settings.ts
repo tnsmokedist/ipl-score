@@ -93,6 +93,10 @@ router.post('/fix-playoff-dates', async (req, res) => {
         const correctDate = new Date(info.date);
         const currentDate = new Date(match.date);
         if (Math.abs(correctDate.getTime() - currentDate.getTime()) > 2 * 60 * 60 * 1000) {
+          // Delete old MatchResult rows for this match (they belong to the wrong draw)
+          const deleted = await prisma.matchResult.deleteMany({ where: { match_id: match.id } });
+          console.log(`[FixPlayoffs] Deleted ${deleted.count} old results for ${info.desc}`);
+
           await prisma.iplMatch.update({
             where: { id: match.id },
             data: { date: correctDate }
