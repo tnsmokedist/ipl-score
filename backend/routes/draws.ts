@@ -256,30 +256,32 @@ router.put('/match/:matchId/scores', async (req, res) => {
 
     const maxRuns = Math.max(...allResults.map(r => r.total_runs));
     const winners = allResults.filter(r => r.total_runs === maxRuns);
+    const losers = allResults.filter(r => r.total_runs < maxRuns);
 
     const match = await prisma.iplMatch.findUnique({ where: { id: matchId } });
     const betPerPlayer = match?.bet_amount || 100;
-    const totalPot = betPerPlayer * allResults.length;
-    const payoutPerWinner = totalPot / winners.length;
+    const payoutPerWinner = (losers.length * betPerPlayer) / winners.length;
 
     for (const r of allResults) {
       const isWin = r.total_runs === maxRuns;
       const payout = isWin ? payoutPerWinner : 0;
-      const netGain = isWin ? (payoutPerWinner - betPerPlayer) : (-betPerPlayer);
 
       await prisma.matchResult.update({
         where: { id: r.id },
         data: { is_winner: isWin, payout }
       });
 
-      await prisma.bettingPlayer.update({
-        where: { id: r.betting_player_id },
-        data: {
-          total_winnings: { increment: isWin ? payoutPerWinner : 0 },
-          total_losses: { increment: betPerPlayer },
-          net_balance: { increment: netGain }
-        }
-      });
+      if (isWin) {
+        await prisma.bettingPlayer.update({
+          where: { id: r.betting_player_id },
+          data: { total_winnings: { increment: payoutPerWinner }, net_balance: { increment: payoutPerWinner } }
+        });
+      } else {
+        await prisma.bettingPlayer.update({
+          where: { id: r.betting_player_id },
+          data: { total_losses: { increment: betPerPlayer }, net_balance: { decrement: betPerPlayer } }
+        });
+      }
     }
 
     await prisma.iplMatch.update({ where: { id: matchId }, data: { status: 'COMPLETED' } });
@@ -290,6 +292,7 @@ router.put('/match/:matchId/scores', async (req, res) => {
       include: { betting_player: true, match: true }
     });
 
+    const totalPot = losers.length * betPerPlayer;
     res.json({ message: `Settled! ${winners.length} winner(s). Pot: $${totalPot}`, results: updated });
   } catch (error) {
     console.error('Score error:', error);
@@ -353,19 +356,27 @@ router.post('/match/:matchId/auto-fetch', async (req, res) => {
 
     const maxRuns = Math.max(...allResults.map(r => r.total_runs));
     const winners = allResults.filter(r => r.total_runs === maxRuns);
+    const losers = allResults.filter(r => r.total_runs < maxRuns);
     const betPerPlayer = match.bet_amount || 100;
-    const totalPot = betPerPlayer * allResults.length;
-    const payoutPerWinner = totalPot / winners.length;
+    const payoutPerWinner = (losers.length * betPerPlayer) / winners.length;
 
     for (const r of allResults) {
       const isWin = r.total_runs === maxRuns;
       const payout = isWin ? payoutPerWinner : 0;
-      const netGain = isWin ? (payoutPerWinner - betPerPlayer) : (-betPerPlayer);
       await prisma.matchResult.update({ where: { id: r.id }, data: { is_winner: isWin, payout } });
-      await prisma.bettingPlayer.update({
-        where: { id: r.betting_player_id },
-        data: { total_winnings: { increment: isWin ? payoutPerWinner : 0 }, total_losses: { increment: betPerPlayer }, net_balance: { increment: netGain } }
-      });
+      if (isWin) {
+        // Winner: gains payout from losers
+        await prisma.bettingPlayer.update({
+          where: { id: r.betting_player_id },
+          data: { total_winnings: { increment: payoutPerWinner }, net_balance: { increment: payoutPerWinner } }
+        });
+      } else {
+        // Loser: loses their bet
+        await prisma.bettingPlayer.update({
+          where: { id: r.betting_player_id },
+          data: { total_losses: { increment: betPerPlayer }, net_balance: { decrement: betPerPlayer } }
+        });
+      }
     }
 
     await prisma.iplMatch.update({ where: { id: matchId }, data: { status: 'COMPLETED' } });
@@ -376,6 +387,7 @@ router.post('/match/:matchId/auto-fetch', async (req, res) => {
       include: { betting_player: true, match: true }
     });
 
+    const totalPot = losers.length * betPerPlayer;
     res.json({ message: `Auto-fetched & settled! ${winners.length} winner(s). Pot: $${totalPot}`, results: updated });
   } catch (error) {
     console.error('Auto-fetch error:', error);
