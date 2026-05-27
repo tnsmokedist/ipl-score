@@ -292,12 +292,27 @@ export default function DrawsPage() {
       )}
 
       {/* Match Results Table */}
-      {selectedMatch && matchResults.length > 0 && (
+      {selectedMatch && matchResults.length > 0 && (() => {
+        const betAmount = matchResults[0]?.match?.bet_amount || 100;
+        const totalPot = betAmount * matchResults.length;
+        const winnerCount = matchResults.filter(r => r.is_winner).length;
+        const payoutPerWinner = winnerCount > 0 ? totalPot / winnerCount : 0;
+        return (
         <div className="rounded-2xl card-glass overflow-hidden"><div className="overflow-x-auto -webkit-overflow-scrolling-touch">
-          <div className="px-6 py-4 border-b border-white/5">
+          <div className="px-6 py-4 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <h2 className="text-lg font-bold text-white">
               {matchResults[0]?.match?.team_a_name} <span className="text-zinc-600 font-normal">vs</span> {matchResults[0]?.match?.team_b_name}
             </h2>
+            {matchResults[0]?.total_runs > 0 && (
+              <div className="flex items-center gap-3 text-xs">
+                <span className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/8 text-zinc-400">
+                  <span className="text-zinc-600">Buy-in:</span> <span className="text-white font-semibold">${betAmount}</span>/player
+                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-amber-500/8 border border-amber-500/15 text-amber-400">
+                  <span className="text-amber-500/70">Pot:</span> <span className="font-bold">${totalPot}</span>
+                </span>
+              </div>
+            )}
           </div>
           <table className="min-w-full divide-y divide-white/5">
             <thead>
@@ -309,7 +324,8 @@ export default function DrawsPage() {
                 <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-500">A Runs</th>
                 <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-500">B Runs</th>
                 <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-500">Total</th>
-                <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-500">Result</th>
+                <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-500">Buy-in</th>
+                <th className="px-6 py-3 text-left text-[11px] font-bold uppercase tracking-[0.15em] text-zinc-500">Payout</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/4">
@@ -322,13 +338,23 @@ export default function DrawsPage() {
                   <td className="px-6 py-4 text-sm text-zinc-300 score-display">{r.player_a_runs}</td>
                   <td className="px-6 py-4 text-sm text-zinc-300 score-display">{r.player_b_runs}</td>
                   <td className="px-6 py-4 text-sm font-bold text-white score-display">{r.total_runs}</td>
-                  <td className="px-6 py-4">{r.is_winner ? <span className="inline-flex items-center gap-1 text-xs font-bold badge-settled px-2.5 py-1 rounded-md"><Trophy className="h-3 w-3" /> ${r.payout}</span> : r.total_runs > 0 ? <span className="text-xs text-zinc-600">—</span> : null}</td>
+                  <td className="px-6 py-4">
+                    {r.total_runs > 0 ? <span className="text-xs font-semibold text-red-400/80">-${betAmount}</span> : null}
+                  </td>
+                  <td className="px-6 py-4">
+                    {r.is_winner 
+                      ? <span className="inline-flex items-center gap-1 text-xs font-bold badge-settled px-2.5 py-1 rounded-md"><Trophy className="h-3 w-3" /> +${r.payout}</span> 
+                      : r.total_runs > 0 
+                        ? <span className="text-xs text-zinc-600">—</span> 
+                        : null}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div></div>
-      )}
+        );
+      })()}
 
       {/* Create / Edit Weekly Draw Modal */}
       {isCreateOpen && (
