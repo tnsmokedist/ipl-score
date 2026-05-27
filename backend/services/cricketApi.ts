@@ -66,7 +66,6 @@ export async function scrapeIPLSchedule(): Promise<CricbuzzMatch[]> {
           if (!seen.has(key)) {
             seen.add(key);
             const desc = descM?.[1] || '';
-            const matchNum = desc.match(/(\d+)/)?.[1];
             let matchDate: Date | null = null;
             if (startDtM) {
               let ts = parseInt(startDtM[1]);
@@ -74,14 +73,17 @@ export async function scrapeIPLSchedule(): Promise<CricbuzzMatch[]> {
               matchDate = new Date(ts);
             }
 
-            // Assign playoff match numbers for sorting
-            let finalMatchNum = matchNum ? parseInt(matchNum) : 0;
+            // Check for playoff matches FIRST (before extracting numbers)
             const descLower = desc.toLowerCase();
-            if (finalMatchNum === 0) {
-              if (descLower.includes('qualifier 1')) finalMatchNum = 71;
-              else if (descLower.includes('eliminator')) finalMatchNum = 72;
-              else if (descLower.includes('qualifier 2')) finalMatchNum = 73;
-              else if (descLower.includes('final')) finalMatchNum = 74;
+            let finalMatchNum = 0;
+            if (descLower.includes('qualifier 1')) finalMatchNum = 71;
+            else if (descLower.includes('eliminator')) finalMatchNum = 72;
+            else if (descLower.includes('qualifier 2')) finalMatchNum = 73;
+            else if (descLower === 'final' || descLower.includes('ipl final') || descLower.includes('ipl 2026 final')) finalMatchNum = 74;
+            else {
+              // Regular league match — extract number
+              const matchNum = desc.match(/(\d+)/)?.[1];
+              finalMatchNum = matchNum ? parseInt(matchNum) : 0;
             }
 
             // Estimate playoff dates if Cricbuzz doesn't provide them
