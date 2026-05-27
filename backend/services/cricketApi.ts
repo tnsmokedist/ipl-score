@@ -44,50 +44,92 @@ export async function scrapeIPLSchedule(): Promise<CricbuzzMatch[]> {
     const matches: CricbuzzMatch[] = [];
     const seen = new Set<string>();
 
-    let idx = 0;
-    while (true) {
-      idx = html.indexOf('matchId', idx);
-      if (idx === -1) break;
-      // Look back further to find the startDate which comes before matchId in the data
-      const chunkStart = Math.max(0, idx - 200);
-      const chunk = html.substring(chunkStart, idx + 2000);
+    // Parse matches from HTML (schedule page + optionally live scores page)
+    function parseMatchesFromHtml(html: string) {
+      let idx = 0;
+      while (true) {
+        idx = html.indexOf('matchId', idx);
+        if (idx === -1) break;
+        // Widen search window to catch startDate in different JSON layouts
+        const chunkStart = Math.max(0, idx - 500);
+        const chunk = html.substring(chunkStart, idx + 3000);
 
-      const idM = chunk.match(/matchId[\\]*":(\d+)/);
-      const descM = chunk.match(/matchDesc[\\]*":[\\]*"([^\\"]+)/);
-      const t1M = chunk.match(/team1[\\]*":\{[^}]*?teamSName[\\]*":[\\]*"([A-Z]+)/);
-      const t2M = chunk.match(/team2[\\]*":\{[^}]*?teamSName[\\]*":[\\]*"([A-Z]+)/);
-      const stateM = chunk.match(/stateTitle[\\]*":[\\]*"([^\\"]+)/);
-      const startDtM = chunk.match(/startDate[\\]*":[\\]*"(\d{10,13})/);
+        const idM = chunk.match(/matchId[\\]*":(\d+)/);
+        const descM = chunk.match(/matchDesc[\\]*":[\\]*"([^\\"]+)/);
+        const t1M = chunk.match(/team1[\\]*":\{[^}]*?teamSName[\\]*":[\\]*"([A-Z]+)/);
+        const t2M = chunk.match(/team2[\\]*":\{[^}]*?teamSName[\\]*":[\\]*"([A-Z]+)/);
+        const stateM = chunk.match(/stateTitle[\\]*":[\\]*"([^\\"]+)/);
+        const startDtM = chunk.match(/startDate[\\]*":[\\]*"(\d{10,13})/);
 
-      if (idM && t1M && t2M && iplTeams.has(t1M[1]) && iplTeams.has(t2M[1])) {
-        const key = `${idM[1]}_${t1M[1]}_${t2M[1]}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          const matchNum = descM?.[1]?.match(/(\d+)/)?.[1];
-          let matchDate: Date | null = null;
-          if (startDtM) {
-            let ts = parseInt(startDtM[1]);
-            if (ts < 1e12) ts *= 1000;
-            matchDate = new Date(ts);
+        if (idM && t1M && t2M && iplTeams.has(t1M[1]) && iplTeams.has(t2M[1])) {
+          const key = `${idM[1]}_${t1M[1]}_${t2M[1]}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            const desc = descM?.[1] || '';
+            const matchNum = desc.match(/(\d+)/)?.[1];
+            let matchDate: Date | null = null;
+            if (startDtM) {
+              let ts = parseInt(startDtM[1]);
+              if (ts < 1e12) ts *= 1000;
+              matchDate = new Date(ts);
+            }
+
+            // Assign playoff match numbers for sorting
+            let finalMatchNum = matchNum ? parseInt(matchNum) : 0;
+            const descLower = desc.toLowerCase();
+            if (finalMatchNum === 0) {
+              if (descLower.includes('qualifier 1')) finalMatchNum = 71;
+              else if (descLower.includes('eliminator')) finalMatchNum = 72;
+              else if (descLower.includes('qualifier 2')) finalMatchNum = 73;
+              else if (descLower.includes('final')) finalMatchNum = 74;
+            }
+
+            // Estimate playoff dates if Cricbuzz doesn't provide them
+            if (!matchDate && finalMatchNum >= 71) {
+              const playoffDates: Record<number, string> = {
+                71: '2026-05-25', // Qualifier 1
+                72: '2026-05-27', // Eliminator
+                73: '2026-05-28', // Qualifier 2
+                74: '2026-05-31', // Final
+              };
+              if (playoffDates[finalMatchNum]) {
+                matchDate = new Date(playoffDates[finalMatchNum] + 'T14:00:00Z');
+              }
+            }
+
+            matches.push({
+              cricbuzz_id: idM[1],
+              match_desc: desc,
+              match_number: finalMatchNum,
+              team_a_name: TEAM_MAP[t1M[1]],
+              team_b_name: TEAM_MAP[t2M[1]],
+              team_a_abbr: t1M[1],
+              team_b_abbr: t2M[1],
+              status: stateM?.[1] || 'Upcoming',
+              start_date: matchDate
+            });
           }
-          matches.push({
-            cricbuzz_id: idM[1],
-            match_desc: descM?.[1] || '',
-            match_number: matchNum ? parseInt(matchNum) : 0,
-            team_a_name: TEAM_MAP[t1M[1]],
-            team_b_name: TEAM_MAP[t2M[1]],
-            team_a_abbr: t1M[1],
-            team_b_abbr: t2M[1],
-            status: stateM?.[1] || 'Upcoming',
-            start_date: matchDate
-          });
         }
+        idx += 10;
       }
-      idx += 10;
+    }
+
+    parseMatchesFromHtml(html);
+
+    // Also check the Cricbuzz live scores page for playoff matches
+    try {
+      const liveUrl = 'https://m.cricbuzz.com/cricket-match/live-scores';
+      const liveRes = await fetch(liveUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)' } });
+      if (liveRes.ok) {
+        const liveHtml = await liveRes.text();
+        parseMatchesFromHtml(liveHtml);
+      }
+    } catch (e) {
+      console.log('[Cricbuzz] Could not fetch live scores page for playoffs');
     }
 
     matches.sort((a, b) => a.match_number - b.match_number);
-    console.log(`[Cricbuzz] Found ${matches.length} IPL matches`);
+    console.log(`[Cricbuzz] Found ${matches.length} IPL matches (incl. playoffs)`);
     return matches;
   } catch (e) {
     console.error('[Cricbuzz] Schedule error:', e);
