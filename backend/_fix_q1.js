@@ -1,59 +1,88 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-async function verifyWinners() {
+async function fixBalances() {
   try {
-    // Check all matches that have scores but verify winner flags match
+    const players = await prisma.bettingPlayer.findMany({ orderBy: { name: 'asc' } });
+    
+    // Recalculate from all MatchResults using ORIGINAL pot-based formula:
+    // totalPot = betPerPlayer × allPlayers, winner gets full pot, everyone pays entry
     const allResults = await prisma.matchResult.findMany({
       where: { total_runs: { gt: 0 } },
-      include: { betting_player: true, match: true },
-      orderBy: { match: { date: 'asc' } }
+      include: { betting_player: true, match: true }
     });
+    
+    const calc = {};
+    players.forEach(p => { calc[p.id] = { name: p.name, wins: 0, losses: 0, net: 0 }; });
     
     const byMatch = {};
     allResults.forEach(r => {
-      if (!byMatch[r.match_id]) byMatch[r.match_id] = { match: r.match, results: [] };
-      byMatch[r.match_id].results.push(r);
+      if (!byMatch[r.match_id]) byMatch[r.match_id] = [];
+      byMatch[r.match_id].push(r);
     });
     
-    let issues = 0;
-    for (const [matchId, data] of Object.entries(byMatch)) {
-      const sorted = data.results.sort((a, b) => b.total_runs - a.total_runs);
+    for (const [matchId, results] of Object.entries(byMatch)) {
+      const sorted = results.sort((a, b) => b.total_runs - a.total_runs);
       const maxRuns = sorted[0].total_runs;
       const winners = sorted.filter(r => r.total_runs === maxRuns);
-      const losers = sorted.filter(r => r.total_runs < maxRuns);
-      const betAmt = data.match.bet_amount;
-      const payout = (losers.length * betAmt) / winners.length;
+      const betAmt = sorted[0].match.bet_amount || 100;
+      const totalPot = betAmt * results.length;
+      const payoutPerWinner = totalPot / winners.length;
       
+      // Everyone pays entry (loss), winners get pot (win)
       for (const r of sorted) {
-        const shouldWin = r.total_runs === maxRuns;
-        const shouldPayout = shouldWin ? payout : 0;
-        
-        if (r.is_winner !== shouldWin || Math.abs(r.payout - shouldPayout) > 0.01) {
-          console.log(`⚠️ ${data.match.date.toISOString().slice(0,10)} ${data.match.team_a_name} vs ${data.match.team_b_name}: ${r.betting_player.name} is_winner=${r.is_winner}→${shouldWin} payout=$${r.payout}→$${shouldPayout}`);
-          
+        const isWin = r.total_runs === maxRuns;
+        calc[r.betting_player_id].losses += betAmt;  // everyone pays
+        if (isWin) {
+          calc[r.betting_player_id].wins += payoutPerWinner;
+        }
+        const netGain = isWin ? (payoutPerWinner - betAmt) : (-betAmt);
+        calc[r.betting_player_id].net += netGain;
+      }
+      
+      // Also fix payout amounts in MatchResult records
+      for (const r of sorted) {
+        const isWin = r.total_runs === maxRuns;
+        const payout = isWin ? payoutPerWinner : 0;
+        if (Math.abs(r.payout - payout) > 0.01 || r.is_winner !== isWin) {
           await prisma.matchResult.update({
             where: { id: r.id },
-            data: { is_winner: shouldWin, payout: shouldPayout }
+            data: { is_winner: isWin, payout }
           });
-          issues++;
         }
       }
     }
     
-    if (issues === 0) {
-      console.log('✅ All winner flags and payouts are correct!');
-    } else {
-      console.log(`\n✅ Fixed ${issues} winner/payout discrepancies.`);
+    // Apply corrections
+    console.log('=== RECALCULATING BALANCES (pot-based: $100 × 8 = $800 pot) ===');
+    for (const p of players) {
+      const c = calc[p.id];
+      if (Math.abs(c.wins - p.total_winnings) > 0.01 || 
+          Math.abs(c.losses - p.total_losses) > 0.01 ||
+          Math.abs(c.net - p.net_balance) > 0.01) {
+        await prisma.bettingPlayer.update({
+          where: { id: p.id },
+          data: {
+            total_winnings: c.wins,
+            total_losses: c.losses,
+            net_balance: c.net,
+          }
+        });
+        console.log(`${c.name.padEnd(10)} | Win: $${p.total_winnings} → $${c.wins} | Loss: $${p.total_losses} → $${c.losses} | Net: $${p.net_balance} → $${c.net}`);
+      } else {
+        console.log(`${c.name.padEnd(10)} | ✅ Already correct (Win: $${c.wins} | Loss: $${c.losses} | Net: $${c.net})`);
+      }
     }
     
-    // Also verify RCB vs GT (Q1) has scores
-    const q1 = await prisma.iplMatch.findFirst({ where: { api_match_id: 'cb_155376' } });
-    if (q1) {
-      const q1Results = await prisma.matchResult.findMany({ where: { match_id: q1.id } });
-      const hasScores = q1Results.some(r => r.total_runs > 0);
-      console.log(`\nQ1 (RCB vs GT): ${hasScores ? 'Has scores ✅' : 'NO SCORES - needs auto-fetch ⚠️'}`);
-    }
+    // Verify
+    const updated = await prisma.bettingPlayer.findMany({ orderBy: { name: 'asc' } });
+    let tw = 0, tl = 0;
+    console.log('\n=== FINAL BALANCES ===');
+    updated.forEach(p => {
+      console.log(`${p.name.padEnd(10)} | Win: $${p.total_winnings.toString().padStart(6)} | Loss: $${p.total_losses.toString().padStart(6)} | Net: $${p.net_balance.toString().padStart(6)}`);
+      tw += p.total_winnings; tl += p.total_losses;
+    });
+    console.log(`${'TOTAL'.padEnd(10)} | Win: $${tw.toString().padStart(6)} | Loss: $${tl.toString().padStart(6)} | Net: $${(tw - tl).toString().padStart(6)} (should be $0)`);
     
   } catch (e) {
     console.error('Error:', e);
@@ -61,4 +90,4 @@ async function verifyWinners() {
     await prisma.$disconnect();
   }
 }
-verifyWinners();
+fixBalances();
