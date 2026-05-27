@@ -82,8 +82,8 @@ router.post('/fix-playoff-dates', async (req, res) => {
     console.log('[FixPlayoffs] Fixing playoff match dates...');
     const playoffFixMap: Record<string, { date: string; desc: string }> = {
       'cb_155376': { date: '2026-05-26T14:00:00Z', desc: 'Qualifier 1' },
-      'cb_155387': { date: '2026-05-28T14:00:00Z', desc: 'Eliminator' },
-      'cb_155398': { date: '2026-05-30T14:00:00Z', desc: 'Qualifier 2' },
+      'cb_155387': { date: '2026-05-27T14:00:00Z', desc: 'Eliminator' },
+      'cb_155398': { date: '2026-05-29T14:00:00Z', desc: 'Qualifier 2' },
     };
 
     let fixed = 0;

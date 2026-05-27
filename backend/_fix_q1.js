@@ -1,64 +1,93 @@
-// Direct database fix for Q1 match date - bypasses the API
 const { PrismaClient } = require('@prisma/client');
+const { scrapeCricbuzzScorecard } = require('./services/cricketApi');
 const prisma = new PrismaClient();
 
-async function fixQ1() {
+async function refetchEliminator() {
   try {
-    // Find Q1 match
-    const q1 = await prisma.iplMatch.findFirst({ where: { api_match_id: 'cb_155376' } });
-    if (!q1) { console.log('Q1 match not found!'); return; }
+    const match = await prisma.iplMatch.findFirst({ where: { api_match_id: 'cb_155387' } });
+    if (!match) { console.log('Eliminator not found!'); return; }
     
-    console.log('Current Q1 date:', q1.date.toISOString(), q1.team_a_name, 'vs', q1.team_b_name);
+    console.log('Eliminator match:', match.id, match.team_a_name, 'vs', match.team_b_name);
     
-    // Step 1: Delete old MatchResult rows for Q1
-    const deleted = await prisma.matchResult.deleteMany({ where: { match_id: q1.id } });
-    console.log(`Deleted ${deleted.count} old MatchResult rows for Q1`);
+    // Get scorecard
+    const scores = await scrapeCricbuzzScorecard('155387');
+    if (!scores) { console.log('Failed to scrape scorecard!'); return; }
     
-    // Step 2: Update Q1 date to May 26
-    await prisma.iplMatch.update({
-      where: { id: q1.id },
-      data: { date: new Date('2026-05-26T14:00:00Z') }
-    });
-    console.log('Updated Q1 date to 2026-05-26');
+    console.log('Team A batters:', scores.team_a_batters.map(b => `${b.name}(${b.runs})`).join(', '));
+    console.log('Team B batters:', scores.team_b_batters.map(b => `${b.name}(${b.runs})`).join(', '));
     
-    // Step 3: Find the May 20-26 draw
-    const may20Draw = await prisma.weeklyDraw.findFirst({
-      where: { week_label: { contains: 'May 20' } },
-      include: { entries: true }
+    // Get all results for this match (the new empty ones we just backfilled)
+    const results = await prisma.matchResult.findMany({
+      where: { match_id: match.id },
+      include: { betting_player: true }
     });
     
-    if (!may20Draw) { console.log('May 20-26 draw not found!'); return; }
-    console.log(`Found draw "${may20Draw.week_label}" with ${may20Draw.entries.length} entries`);
+    console.log(`\nUpdating ${results.length} results...`);
     
-    // Step 4: Create MatchResult rows for Q1 in the May 20-26 draw
-    let created = 0;
-    for (const entry of may20Draw.entries) {
-      await prisma.matchResult.create({
+    for (const r of results) {
+      const aBatter = scores.team_a_batters.find(b => b.position === r.team_a_position);
+      const bBatter = scores.team_b_batters.find(b => b.position === r.team_b_position);
+      
+      const aRuns = aBatter?.runs || 0;
+      const bRuns = bBatter?.runs || 0;
+      const totalRuns = aRuns + bRuns;
+      
+      await prisma.matchResult.update({
+        where: { id: r.id },
         data: {
-          weekly_draw_id: may20Draw.id,
-          match_id: q1.id,
-          betting_player_id: entry.betting_player_id,
-          team_a_position: entry.team_a_position,
-          team_b_position: entry.team_b_position,
+          player_a_name: aBatter?.name || '',
+          player_b_name: bBatter?.name || '',
+          player_a_runs: aRuns,
+          player_b_runs: bRuns,
+          total_runs: totalRuns,
         }
       });
-      created++;
+      console.log(`  ${r.betting_player.name} A${r.team_a_position}B${r.team_b_position}: ${aBatter?.name}(${aRuns}) + ${bBatter?.name}(${bRuns}) = ${totalRuns}`);
     }
-    console.log(`Created ${created} MatchResult rows for Q1 in "${may20Draw.week_label}"`);
     
-    // Verify
-    const q1Updated = await prisma.iplMatch.findFirst({ where: { api_match_id: 'cb_155376' } });
-    console.log('\nVerification - Q1 date now:', q1Updated.date.toISOString());
+    // Determine winner(s) - just mark the results, DON'T adjust balances
+    // (balances were already adjusted from the first auto-fetch)
+    const updatedResults = await prisma.matchResult.findMany({
+      where: { match_id: match.id },
+      include: { betting_player: true },
+      orderBy: { total_runs: 'desc' }
+    });
     
-    const results = await prisma.matchResult.count({ where: { match_id: q1.id } });
-    console.log('Q1 MatchResult count:', results);
+    const maxRuns = updatedResults[0].total_runs;
+    const winners = updatedResults.filter(r => r.total_runs === maxRuns);
+    const losers = updatedResults.filter(r => r.total_runs < maxRuns);
+    const payout = (losers.length * match.bet_amount) / winners.length;
     
-    console.log('\n✅ DONE! Q1 (RCB vs GT) moved to May 26 and backfilled into May 20-26 draw.');
+    // Mark winners (without changing balances)
+    for (const w of winners) {
+      await prisma.matchResult.update({
+        where: { id: w.id },
+        data: { is_winner: true, payout }
+      });
+      console.log(`\n🏆 Winner: ${w.betting_player.name} (${maxRuns} runs) → $${payout}`);
+    }
+    
+    // Mark losers (without changing balances) 
+    for (const l of losers) {
+      await prisma.matchResult.update({
+        where: { id: l.id },
+        data: { is_winner: false, payout: 0 }
+      });
+    }
+    
+    // Ensure match is completed
+    await prisma.iplMatch.update({
+      where: { id: match.id },
+      data: { status: 'COMPLETED' }
+    });
+    
+    console.log(`\n✅ Eliminator re-settled! ${winners.length} winner(s), ${losers.length} losers`);
+    console.log('(Balances NOT adjusted — they were already updated from the first auto-fetch)');
+    
   } catch (e) {
     console.error('Error:', e);
   } finally {
     await prisma.$disconnect();
   }
 }
-
-fixQ1();
+refetchEliminator();
