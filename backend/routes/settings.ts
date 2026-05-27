@@ -27,12 +27,12 @@ router.post('/sync-matches', async (req, res) => {
           team_a_name: m.team_a_name,
           team_b_name: m.team_b_name,
         };
-        // If Cricbuzz provides a real date AND it differs from what we have, update it
+        // If Cricbuzz provides a real date (or estimated playoff date) AND it differs from what we have, update it
         if (m.start_date) {
           const cbDate = new Date(m.start_date);
           const existingDate = new Date(existing.date);
-          // Check if dates differ by more than 12 hours (i.e. different day)
-          if (Math.abs(cbDate.getTime() - existingDate.getTime()) > 12 * 60 * 60 * 1000) {
+          // Check if dates differ by more than 2 hours (handles timezone edge cases)
+          if (Math.abs(cbDate.getTime() - existingDate.getTime()) > 2 * 60 * 60 * 1000) {
             updateData.date = cbDate;
             datesFixed++;
             console.log(`[Sync] Fixed date for ${m.team_a_name} vs ${m.team_b_name}: ${existingDate.toISOString()} → ${cbDate.toISOString()}`);
@@ -73,6 +73,47 @@ router.post('/sync-matches', async (req, res) => {
   } catch (error) {
     console.error('Sync error:', error);
     res.status(500).json({ error: 'Failed to sync matches' });
+  }
+});
+
+// ─── Fix Playoff Dates: Directly fix playoff match dates in DB ───
+router.post('/fix-playoff-dates', async (req, res) => {
+  try {
+    console.log('[FixPlayoffs] Fixing playoff match dates...');
+    const playoffFixMap: Record<string, { date: string; desc: string }> = {
+      'cb_155376': { date: '2026-05-25T14:00:00Z', desc: 'Qualifier 1' },
+      'cb_155387': { date: '2026-05-27T14:00:00Z', desc: 'Eliminator' },
+      'cb_155398': { date: '2026-05-29T14:00:00Z', desc: 'Qualifier 2' },
+    };
+
+    let fixed = 0;
+    for (const [apiId, info] of Object.entries(playoffFixMap)) {
+      const match = await prisma.iplMatch.findFirst({ where: { api_match_id: apiId } });
+      if (match) {
+        const correctDate = new Date(info.date);
+        const currentDate = new Date(match.date);
+        if (Math.abs(correctDate.getTime() - currentDate.getTime()) > 2 * 60 * 60 * 1000) {
+          await prisma.iplMatch.update({
+            where: { id: match.id },
+            data: { date: correctDate }
+          });
+          console.log(`[FixPlayoffs] ${info.desc}: ${currentDate.toISOString().split('T')[0]} → ${correctDate.toISOString().split('T')[0]}`);
+          fixed++;
+        } else {
+          console.log(`[FixPlayoffs] ${info.desc}: already correct (${currentDate.toISOString().split('T')[0]})`);
+        }
+      } else {
+        console.log(`[FixPlayoffs] ${info.desc} (${apiId}): not found in DB`);
+      }
+    }
+
+    // Backfill draws after fixing dates
+    const backfilled = await backfillDrawResults();
+    console.log(`[FixPlayoffs] Done! ${fixed} playoff dates fixed, ${backfilled} draw results backfilled.`);
+    res.json({ message: `Fixed ${fixed} playoff dates, backfilled ${backfilled} draw results.`, fixed, backfilled });
+  } catch (error) {
+    console.error('Fix playoff dates error:', error);
+    res.status(500).json({ error: 'Failed to fix playoff dates' });
   }
 });
 
