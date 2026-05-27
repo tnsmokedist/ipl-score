@@ -1,22 +1,24 @@
-// Check what the scraper now finds
-const { scrapeIPLSchedule } = require('./services/cricketApi');
+const fs = require('fs');
+const html = fs.readFileSync(String.raw`C:\Users\HITESHPATIDAR\.gemini\antigravity\brain\a8ff2e77-606f-4ccd-9bbd-cb7540c73cc6\.system_generated\steps\387\content.md`, 'utf8');
 
-async function check() {
-  const matches = await scrapeIPLSchedule();
-  console.log(`Total matches: ${matches.length}`);
-  
-  // Find Q1 (cb_155376)
-  const q1 = matches.find(m => m.cricbuzz_id === '155376');
-  console.log('\nQualifier 1 (155376):', q1 || 'NOT FOUND');
-  
-  // Find Eliminator (cb_155387)
-  const elim = matches.find(m => m.cricbuzz_id === '155387');
-  console.log('Eliminator (155387):', elim || 'NOT FOUND');
-  
-  // Show all matches with match_number >= 70
-  console.log('\n=== Matches #70+ ===');
-  matches.filter(m => m.match_number >= 70).forEach(m => {
-    console.log(`#${m.match_number} "${m.match_desc}" CB:${m.cricbuzz_id} | ${m.team_a_abbr} vs ${m.team_b_abbr} | Date: ${m.start_date ? m.start_date.toISOString().slice(0,10) : 'null'} | ${m.status}`);
-  });
+// Find startDate
+const dateM = html.match(/startDate[\\]*":[\\]*"(\d{10,13})/);
+if (dateM) {
+  let ts = parseInt(dateM[1]);
+  if (ts < 1e12) ts *= 1000;
+  console.log('Q1 startDate:', new Date(ts).toISOString());
+} else {
+  console.log('No startDate found in Q1 page');
 }
-check();
+
+// Find match date text
+const dateText = html.match(/(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+\w+\s+\d+,\s+\d{4}/);
+if (dateText) console.log('Match date text:', dateText[0]);
+
+// Find any May 2026 date references
+const mayDates = html.match(/May\s+\d+/g);
+if (mayDates) console.log('May dates found:', [...new Set(mayDates)]);
+
+// Try to find the date another way
+const matchHeader = html.match(/Qualifier 1[^<]*?(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun)\s+(\d{4})/i);
+if (matchHeader) console.log('Header date:', matchHeader[0]);

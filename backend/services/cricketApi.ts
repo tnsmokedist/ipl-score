@@ -89,10 +89,10 @@ export async function scrapeIPLSchedule(): Promise<CricbuzzMatch[]> {
             // Estimate playoff dates if Cricbuzz doesn't provide them
             if (!matchDate && finalMatchNum >= 71) {
               const playoffDates: Record<number, string> = {
-                71: '2026-05-25', // Qualifier 1
-                72: '2026-05-27', // Eliminator
-                73: '2026-05-28', // Qualifier 2
-                74: '2026-05-31', // Final
+                71: '2026-05-26', // Qualifier 1
+                72: '2026-05-28', // Eliminator
+                73: '2026-05-30', // Qualifier 2
+                74: '2026-06-01', // Final
               };
               if (playoffDates[finalMatchNum]) {
                 matchDate = new Date(playoffDates[finalMatchNum] + 'T14:00:00Z');
