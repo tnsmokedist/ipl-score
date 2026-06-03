@@ -1,93 +1,114 @@
 const { PrismaClient } = require('@prisma/client');
+const { scrapeCricbuzzScorecard } = require('./services/cricketApi');
 const prisma = new PrismaClient();
 
-async function fixBalances() {
+async function fixFinal() {
   try {
-    const players = await prisma.bettingPlayer.findMany({ orderBy: { name: 'asc' } });
-    
-    // Recalculate from all MatchResults using ORIGINAL pot-based formula:
-    // totalPot = betPerPlayer × allPlayers, winner gets full pot, everyone pays entry
-    const allResults = await prisma.matchResult.findMany({
-      where: { total_runs: { gt: 0 } },
-      include: { betting_player: true, match: true }
-    });
-    
-    const calc = {};
-    players.forEach(p => { calc[p.id] = { name: p.name, wins: 0, losses: 0, net: 0 }; });
-    
-    const byMatch = {};
-    allResults.forEach(r => {
-      if (!byMatch[r.match_id]) byMatch[r.match_id] = [];
-      byMatch[r.match_id].push(r);
-    });
-    
-    for (const [matchId, results] of Object.entries(byMatch)) {
-      const sorted = results.sort((a, b) => b.total_runs - a.total_runs);
-      const maxRuns = sorted[0].total_runs;
-      const winners = sorted.filter(r => r.total_runs === maxRuns);
-      const betAmt = sorted[0].match.bet_amount || 100;
-      const totalPot = betAmt * results.length;
-      const payoutPerWinner = totalPot / winners.length;
-      
-      // Everyone pays entry (loss), winners get pot (win)
-      for (const r of sorted) {
-        const isWin = r.total_runs === maxRuns;
-        calc[r.betting_player_id].losses += betAmt;  // everyone pays
-        if (isWin) {
-          calc[r.betting_player_id].wins += payoutPerWinner;
-        }
-        const netGain = isWin ? (payoutPerWinner - betAmt) : (-betAmt);
-        calc[r.betting_player_id].net += netGain;
+    const final = await prisma.iplMatch.findFirst({ where: { api_match_id: 'cb_155409' } });
+    if (!final) { console.log('Final not found!'); return; }
+
+    console.log(`Current: ${final.team_a_name} vs ${final.team_b_name} | ${final.status}`);
+
+    // Fix team names - actual Final was GT vs RCB
+    await prisma.iplMatch.update({
+      where: { id: final.id },
+      data: { 
+        team_a_name: 'Gujarat Titans',
+        team_b_name: 'Royal Challengers Bengaluru'
       }
-      
-      // Also fix payout amounts in MatchResult records
-      for (const r of sorted) {
-        const isWin = r.total_runs === maxRuns;
-        const payout = isWin ? payoutPerWinner : 0;
-        if (Math.abs(r.payout - payout) > 0.01 || r.is_winner !== isWin) {
-          await prisma.matchResult.update({
-            where: { id: r.id },
-            data: { is_winner: isWin, payout }
-          });
-        }
-      }
-    }
-    
-    // Apply corrections
-    console.log('=== RECALCULATING BALANCES (pot-based: $100 × 8 = $800 pot) ===');
-    for (const p of players) {
-      const c = calc[p.id];
-      if (Math.abs(c.wins - p.total_winnings) > 0.01 || 
-          Math.abs(c.losses - p.total_losses) > 0.01 ||
-          Math.abs(c.net - p.net_balance) > 0.01) {
-        await prisma.bettingPlayer.update({
-          where: { id: p.id },
+    });
+    console.log('Fixed: Gujarat Titans vs Royal Challengers Bengaluru');
+
+    // Fetch scorecard
+    console.log('\nFetching Final scorecard...');
+    const scores = await scrapeCricbuzzScorecard('155409');
+    if (!scores) { console.log('No scorecard!'); return; }
+
+    console.log(`Team A (GT): ${scores.team_a_batters.map(b => `${b.name}(${b.runs})`).join(', ')}`);
+    console.log(`Team B (RCB): ${scores.team_b_batters.map(b => `${b.name}(${b.runs})`).join(', ')}`);
+
+    // Update results with scores
+    const results = await prisma.matchResult.findMany({
+      where: { match_id: final.id },
+      include: { betting_player: true }
+    });
+
+    console.log(`\nUpdating ${results.length} results...`);
+    for (const r of results) {
+      const aBatter = scores.team_a_batters.find(b => b.position === r.team_a_position);
+      const bBatter = scores.team_b_batters.find(b => b.position === r.team_b_position);
+      if (aBatter && bBatter) {
+        const total = aBatter.runs + bBatter.runs;
+        await prisma.matchResult.update({
+          where: { id: r.id },
           data: {
-            total_winnings: c.wins,
-            total_losses: c.losses,
-            net_balance: c.net,
+            player_a_name: aBatter.name,
+            player_b_name: bBatter.name,
+            player_a_runs: aBatter.runs,
+            player_b_runs: bBatter.runs,
+            total_runs: total
           }
         });
-        console.log(`${c.name.padEnd(10)} | Win: $${p.total_winnings} → $${c.wins} | Loss: $${p.total_losses} → $${c.losses} | Net: $${p.net_balance} → $${c.net}`);
-      } else {
-        console.log(`${c.name.padEnd(10)} | ✅ Already correct (Win: $${c.wins} | Loss: $${c.losses} | Net: $${c.net})`);
+        console.log(`  ${r.betting_player.name.padEnd(10)} A${r.team_a_position}B${r.team_b_position}: ${aBatter.name}(${aBatter.runs}) + ${bBatter.name}(${bBatter.runs}) = ${total}`);
       }
     }
-    
-    // Verify
-    const updated = await prisma.bettingPlayer.findMany({ orderBy: { name: 'asc' } });
+
+    // Settle - find winner(s)
+    const allResults = await prisma.matchResult.findMany({
+      where: { match_id: final.id },
+      include: { betting_player: true },
+      orderBy: { total_runs: 'desc' }
+    });
+
+    const maxRuns = Math.max(...allResults.map(r => r.total_runs));
+    const winners = allResults.filter(r => r.total_runs === maxRuns);
+    const betAmt = final.bet_amount || 100;
+    const totalPot = betAmt * allResults.length;
+    const payoutPerWinner = totalPot / winners.length;
+
+    for (const r of allResults) {
+      const isWin = r.total_runs === maxRuns;
+      const payout = isWin ? payoutPerWinner : 0;
+      const netGain = isWin ? (payoutPerWinner - betAmt) : (-betAmt);
+
+      await prisma.matchResult.update({
+        where: { id: r.id },
+        data: { is_winner: isWin, payout }
+      });
+
+      await prisma.bettingPlayer.update({
+        where: { id: r.betting_player_id },
+        data: {
+          total_winnings: { increment: isWin ? payoutPerWinner : 0 },
+          total_losses: { increment: betAmt },
+          net_balance: { increment: netGain }
+        }
+      });
+    }
+
+    await prisma.iplMatch.update({
+      where: { id: final.id },
+      data: { status: 'COMPLETED' }
+    });
+
+    console.log(`\n🏆 Final settled!`);
+    console.log(`Winner(s): ${winners.map(w => `${w.betting_player.name} (${w.total_runs} runs)`).join(', ')}`);
+    console.log(`Pot: $${totalPot} | Payout: $${payoutPerWinner}/winner`);
+
+    // Final balance check
+    console.log('\n=== FINAL PLAYER BALANCES ===');
+    const players = await prisma.bettingPlayer.findMany({ orderBy: { name: 'asc' } });
     let tw = 0, tl = 0;
-    console.log('\n=== FINAL BALANCES ===');
-    updated.forEach(p => {
+    players.forEach(p => {
       console.log(`${p.name.padEnd(10)} | Win: $${p.total_winnings.toString().padStart(6)} | Loss: $${p.total_losses.toString().padStart(6)} | Net: $${p.net_balance.toString().padStart(6)}`);
       tw += p.total_winnings; tl += p.total_losses;
     });
     console.log(`${'TOTAL'.padEnd(10)} | Win: $${tw.toString().padStart(6)} | Loss: $${tl.toString().padStart(6)} | Net: $${(tw - tl).toString().padStart(6)} (should be $0)`);
-    
+
   } catch (e) {
     console.error('Error:', e);
   } finally {
     await prisma.$disconnect();
   }
 }
-fixBalances();
+fixFinal();
