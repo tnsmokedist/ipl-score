@@ -321,6 +321,15 @@ router.post('/match/:matchId/auto-fetch', async (req, res) => {
       return res.status(404).json({ error: 'Scorecard not available yet. The match may still be in progress.' });
     }
 
+    // Update team names to match batting order (Team A = batted first)
+    if (scorecard.team_a_name && scorecard.team_a_name !== 'Unknown') {
+      await prisma.iplMatch.update({
+        where: { id: matchId },
+        data: { team_a_name: scorecard.team_a_name, team_b_name: scorecard.team_b_name }
+      });
+      console.log(`[AutoFetch] Teams set: A=${scorecard.team_a_name} (batted first), B=${scorecard.team_b_name}`);
+    }
+
     // Update all match results with the scorecard data
     const results = await prisma.matchResult.findMany({
       where: { match_id: matchId },

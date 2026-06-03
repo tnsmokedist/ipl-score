@@ -16,7 +16,7 @@ const ABBR_MAP: Record<string, string> = Object.fromEntries(
 );
 
 interface BatterScore { position: number; name: string; runs: number; }
-interface MatchScorecard { team_a_batters: BatterScore[]; team_b_batters: BatterScore[]; }
+interface MatchScorecard { team_a_name: string; team_b_name: string; team_a_batters: BatterScore[]; team_b_batters: BatterScore[]; }
 
 export interface CricbuzzMatch {
   cricbuzz_id: string;
@@ -208,7 +208,7 @@ export async function scrapeCricbuzzScorecard(cricbuzzMatchId: string): Promise<
     if (innings.length >= 2) {
       console.log(`[Cricbuzz] A(${innings[0].teamName}): ${innings[0].batters.map(b => `${b.name}(${b.runs})`).join(', ')}`);
       console.log(`[Cricbuzz] B(${innings[1].teamName}): ${innings[1].batters.map(b => `${b.name}(${b.runs})`).join(', ')}`);
-      return { team_a_batters: innings[0].batters, team_b_batters: innings[1].batters };
+      return { team_a_name: innings[0].teamName, team_b_name: innings[1].teamName, team_a_batters: innings[0].batters, team_b_batters: innings[1].batters };
     }
 
     // ─── Fallback: flat batShortName scan, require >= 12 batsmen ───
@@ -224,7 +224,7 @@ export async function scrapeCricbuzzScorecard(cricbuzzMatchId: string): Promise<
       const team_a = allBatsmen.slice(0, 4).map((b, i) => ({ position: i + 1, name: b.name, runs: b.runs }));
       const team_b = allBatsmen.slice(11, 15).map((b, i) => ({ position: i + 1, name: b.name, runs: b.runs }));
       console.log(`[Cricbuzz] A: ${team_a.map(b => `${b.name}(${b.runs})`).join(', ')}  B: ${team_b.map(b => `${b.name}(${b.runs})`).join(', ')}`);
-      return { team_a_batters: team_a, team_b_batters: team_b };
+      return { team_a_name: 'Unknown', team_b_name: 'Unknown', team_a_batters: team_a, team_b_batters: team_b };
     }
 
     // Not enough data — cannot settle this match
