@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { Users, Activity, Dices, DollarSign, Loader2, Trophy, TrendingUp, Crown } from 'lucide-react';
+import { Users, Activity, Dices, DollarSign, Loader2, Trophy, TrendingUp, Crown, ChevronRight, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
 interface TopBatsman {
   rank: number;
@@ -38,6 +38,8 @@ const RANK_STYLES = [
 export default function DashboardOverview() {
   const [stats, setStats] = useState<any>(null);
   const [topBatsmen, setTopBatsmen] = useState<TopBatsman[]>([]);
+  const [players, setPlayers] = useState<any[]>([]);
+  const [recentResults, setRecentResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [batsmenLoading, setBatsmenLoading] = useState(true);
 
@@ -48,17 +50,49 @@ export default function DashboardOverview() {
 
   const fetchStats = async () => {
     try {
-      const [players, matches] = await Promise.all([
+      const [playersData, matches, weeks] = await Promise.all([
         api.get('/api/players'),
-        api.get('/api/draws/matches')
+        api.get('/api/draws/matches'),
+        api.get('/api/draws/weeks')
       ]);
 
-      const totalPlayers = players.length;
+      const totalPlayers = playersData.length;
       const totalMatches = matches.length;
       const completedMatches = matches.filter((m: any) => m.status === 'COMPLETED').length;
-      const pendingDraws = matches.filter((m: any) => m.status === 'UPCOMING').length;
+      const pendingMatches = totalMatches - completedMatches;
 
-      setStats({ totalPlayers, totalMatches, completedMatches, pendingDraws });
+      // Sort players by net_balance descending for leaderboard
+      const sortedPlayers = [...playersData].sort((a: any, b: any) => b.net_balance - a.net_balance);
+      setPlayers(sortedPlayers);
+
+      // Get recent settled matches from weeks data
+      const recent: any[] = [];
+      if (weeks && weeks.length > 0) {
+        // Get last 2 weeks
+        const recentWeeks = weeks.slice(-2);
+        for (const w of recentWeeks) {
+          const wResults = w.results || [];
+          const wMatches = w.matches || [];
+          for (const m of wMatches) {
+            const matchResults = wResults.filter((r: any) => r.match_id === m.id && r.total_runs > 0);
+            if (matchResults.length > 0) {
+              const maxRuns = Math.max(...matchResults.map((r: any) => r.total_runs));
+              const winners = matchResults.filter((r: any) => r.total_runs === maxRuns);
+              recent.push({
+                date: m.date,
+                teamA: m.team_a_name,
+                teamB: m.team_b_name,
+                winners: winners.map((w: any) => w.betting_player?.name).filter(Boolean),
+                maxRuns,
+                payout: winners[0]?.payout || 0
+              });
+            }
+          }
+        }
+      }
+      setRecentResults(recent.reverse().slice(0, 6));
+
+      setStats({ totalPlayers, totalMatches, completedMatches, pendingMatches });
     } catch (e) {
       console.error(e);
     } finally {
@@ -89,10 +123,10 @@ export default function DashboardOverview() {
   }
 
   const cards = [
-    { name: 'Betting Players', value: stats?.totalPlayers ?? 0, icon: Users, color: 'text-blue-400', bg: 'bg-blue-500/10', glowColor: 'group-hover:shadow-blue-500/10', borderGlow: 'hover:border-blue-500/20' },
-    { name: 'Total Matches', value: stats?.totalMatches ?? 0, icon: Activity, color: 'text-purple-400', bg: 'bg-purple-500/10', glowColor: 'group-hover:shadow-purple-500/10', borderGlow: 'hover:border-purple-500/20' },
-    { name: 'Pending Draws', value: stats?.pendingDraws ?? 0, icon: Dices, color: 'text-amber-400', bg: 'bg-amber-500/10', glowColor: 'group-hover:shadow-amber-500/10', borderGlow: 'hover:border-amber-500/20' },
-    { name: 'Settled Matches', value: stats?.completedMatches ?? 0, icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-500/10', glowColor: 'group-hover:shadow-emerald-500/10', borderGlow: 'hover:border-emerald-500/20' },
+    { name: 'Betting Players', value: stats?.totalPlayers ?? 0, icon: Users, color: 'text-blue-400', bg: 'bg-blue-500/10', borderGlow: 'hover:border-blue-500/20' },
+    { name: 'Total Matches', value: stats?.totalMatches ?? 0, icon: Activity, color: 'text-purple-400', bg: 'bg-purple-500/10', borderGlow: 'hover:border-purple-500/20' },
+    { name: 'Pending', value: stats?.pendingMatches ?? 0, icon: Dices, color: 'text-amber-400', bg: 'bg-amber-500/10', borderGlow: 'hover:border-amber-500/20' },
+    { name: 'Settled', value: stats?.completedMatches ?? 0, icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-500/10', borderGlow: 'hover:border-emerald-500/20' },
   ];
 
   return (
@@ -103,30 +137,100 @@ export default function DashboardOverview() {
           Dashboard Overview
         </h1>
         <p className="text-sm text-zinc-500">
-          IPL 2026 Draw-Based Betting — March 28 to May 31
+          IPL 2026 Draw-Based Betting — Season Summary
         </p>
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {cards.map((card) => (
           <div
             key={card.name}
-            className={`group flex flex-col rounded-2xl card-elevated p-6 transition-premium ${card.borderGlow}`}
+            className={`group flex flex-col rounded-2xl card-elevated p-5 transition-premium ${card.borderGlow}`}
           >
             <div className="flex items-center justify-between">
-              <span className="text-[13px] font-medium text-zinc-500">{card.name}</span>
-              <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${card.bg} transition-premium`}>
-                <card.icon className={`h-5 w-5 ${card.color} transition-colors`} />
+              <span className="text-[12px] font-medium text-zinc-500">{card.name}</span>
+              <div className={`flex h-9 w-9 items-center justify-center rounded-xl ${card.bg} transition-premium`}>
+                <card.icon className={`h-4 w-4 ${card.color} transition-colors`} />
               </div>
             </div>
-            <div className="mt-4">
-              <span className="text-4xl font-bold text-white score-display">{card.value}</span>
+            <div className="mt-3">
+              <span className="text-3xl font-bold text-white score-display">{card.value}</span>
             </div>
-            {/* Subtle pitch-line accent */}
-            <div className="mt-4 pitch-line rounded-full" />
           </div>
         ))}
+      </div>
+
+      {/* Player Leaderboard + Recent Results */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Player Leaderboard */}
+        <div className="rounded-2xl card-glass overflow-hidden">
+          <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/15">
+                <Trophy className="h-4 w-4 text-emerald-400" />
+              </div>
+              <h2 className="text-sm font-bold text-white">Player Standings</h2>
+            </div>
+          </div>
+          <div className="divide-y divide-white/4">
+            {players.map((p, i) => {
+              const isPositive = p.net_balance >= 0;
+              return (
+                <div key={p.id} className={`flex items-center px-5 py-3.5 transition-premium hover:bg-white/3 ${i === 0 ? 'bg-emerald-500/5' : ''}`}>
+                  <span className={`w-7 text-center text-xs font-bold ${i === 0 ? 'text-amber-400' : i === 1 ? 'text-zinc-300' : i === 2 ? 'text-amber-600' : 'text-zinc-600'}`}>
+                    {i === 0 ? '👑' : `#${i + 1}`}
+                  </span>
+                  <span className="flex-1 ml-3 text-sm font-semibold text-white">{p.name}</span>
+                  <div className="flex items-center gap-4 text-right">
+                    <div className="hidden sm:block">
+                      <div className="text-[10px] text-zinc-600 uppercase tracking-wider">Won</div>
+                      <div className="text-xs font-semibold text-emerald-400/80">${p.total_winnings.toLocaleString()}</div>
+                    </div>
+                    <div className="hidden sm:block">
+                      <div className="text-[10px] text-zinc-600 uppercase tracking-wider">Lost</div>
+                      <div className="text-xs font-semibold text-red-400/80">${p.total_losses.toLocaleString()}</div>
+                    </div>
+                    <div className="min-w-[70px]">
+                      <div className={`flex items-center justify-end gap-0.5 text-sm font-bold ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {isPositive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
+                        ${Math.abs(p.net_balance).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Recent Results */}
+        <div className="rounded-2xl card-glass overflow-hidden">
+          <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/15">
+                <Activity className="h-4 w-4 text-blue-400" />
+              </div>
+              <h2 className="text-sm font-bold text-white">Recent Results</h2>
+            </div>
+          </div>
+          <div className="divide-y divide-white/4">
+            {recentResults.length === 0 ? (
+              <div className="px-5 py-8 text-center text-sm text-zinc-600">No recent results</div>
+            ) : recentResults.map((r, i) => (
+              <div key={i} className="px-5 py-3.5 transition-premium hover:bg-white/3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-zinc-600">{new Date(r.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                  <span className="text-xs font-semibold text-amber-400/90">🏆 {r.winners.join(', ')}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-zinc-300">{r.teamA} <span className="text-zinc-600">vs</span> {r.teamB}</p>
+                  <span className="text-xs font-bold text-emerald-400/70">${r.payout}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* ── Top 4 Batsmen — Orange Cap Race ── */}
@@ -193,12 +297,10 @@ export default function DashboardOverview() {
                           alt={batsman.name}
                           className="h-full w-full object-cover"
                           onError={(e) => {
-                            // Fallback to initials if image fails
                             (e.target as HTMLImageElement).style.display = 'none';
                             (e.target as HTMLImageElement).parentElement!.innerHTML = `<div class="h-full w-full flex items-center justify-center text-2xl font-bold text-white bg-gradient-to-br ${teamColor.gradient.replace(/\/\d+/g, '')}">${batsman.name.split(' ').map(n => n[0]).join('')}</div>`;
                           }}
                         />
-                        {/* Orange cap glow for #1 */}
                         {isFirst && (
                           <div className="absolute -inset-1 rounded-full bg-amber-400/20 blur-md -z-10 animate-pulse" />
                         )}
